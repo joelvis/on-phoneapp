@@ -62,22 +62,80 @@ struct Task: Identifiable, Codable {
     }
 }
 
-// MARK: - Task Storage Manager
+// MARK: - Task Storage Manager (Core Data)
 class TaskStorageManager {
-    private let tasksKey = "saved_tasks"
+    private let context = CoreDataManager.shared.viewContext
 
-    func saveTasks(_ tasks: [Task]) {
-        if let encoded = try? JSONEncoder().encode(tasks) {
-            UserDefaults.standard.set(encoded, forKey: tasksKey)
+    // Load all tasks from Core Data
+    func loadTasks() -> [Task] {
+        let fetchRequest: NSFetchRequest<TaskEntity> = NSFetchRequest(entityName: "TaskEntity")
+        fetchRequest.sortDescriptors = [
+            NSSortDescriptor(key: "priority", ascending: false),
+            NSSortDescriptor(key: "dueDate", ascending: true),
+            NSSortDescriptor(key: "createdAt", ascending: false)
+        ]
+
+        do {
+            let taskEntities = try context.fetch(fetchRequest)
+            let tasks = taskEntities.map { $0.toTask() }
+            print("✅ TaskStorageManager: Loaded \(tasks.count) tasks from Core Data")
+            return tasks
+        } catch {
+            print("❌ TaskStorageManager: Failed to load tasks: \(error.localizedDescription)")
+            return []
         }
     }
 
-    func loadTasks() -> [Task] {
-        guard let data = UserDefaults.standard.data(forKey: tasksKey),
-              let tasks = try? JSONDecoder().decode([Task].self, from: data) else {
-            return []
+    // Save a single task to Core Data
+    func saveTask(_ task: Task) {
+        // Check if task already exists
+        let fetchRequest: NSFetchRequest<TaskEntity> = NSFetchRequest(entityName: "TaskEntity")
+        fetchRequest.predicate = NSPredicate(format: "id == %@", task.id as CVarArg)
+
+        do {
+            let results = try context.fetch(fetchRequest)
+
+            if let existingTask = results.first {
+                // Update existing task
+                existingTask.update(from: task)
+                print("✅ TaskStorageManager: Updated task: \(task.title)")
+            } else {
+                // Create new task
+                _ = TaskEntity.from(task: task, context: context)
+                print("✅ TaskStorageManager: Created new task: \(task.title)")
+            }
+
+            try context.save()
+        } catch {
+            print("❌ TaskStorageManager: Failed to save task: \(error.localizedDescription)")
         }
-        return tasks
+    }
+
+    // Delete a task from Core Data
+    func deleteTask(_ task: Task) {
+        let fetchRequest: NSFetchRequest<TaskEntity> = NSFetchRequest(entityName: "TaskEntity")
+        fetchRequest.predicate = NSPredicate(format: "id == %@", task.id as CVarArg)
+
+        do {
+            let results = try context.fetch(fetchRequest)
+            if let taskEntity = results.first {
+                context.delete(taskEntity)
+                try context.save()
+                print("✅ TaskStorageManager: Deleted task: \(task.title)")
+            }
+        } catch {
+            print("❌ TaskStorageManager: Failed to delete task: \(error.localizedDescription)")
+        }
+    }
+
+    // DEPRECATED: Kept for backwards compatibility during migration
+    // This method is no longer used with Core Data
+    func saveTasks(_ tasks: [Task]) {
+        print("⚠️ TaskStorageManager: saveTasks(_:) is deprecated with Core Data")
+        // Save each task individually
+        for task in tasks {
+            saveTask(task)
+        }
     }
 }
 
@@ -360,10 +418,10 @@ struct TaskManagerView: View {
         }
     }
 
-    // MARK: - Task Operations
+    // MARK: - Task Operations (Core Data)
     private func addTask(task: Task) {
         tasks.insert(task, at: 0)
-        saveTasks()
+        storageManager.saveTask(task)
 
         // Schedule notification if reminder is enabled
         if task.hasReminder {
@@ -375,7 +433,7 @@ struct TaskManagerView: View {
         if let index = tasks.firstIndex(where: { $0.id == updatedTask.id }) {
             let oldTask = tasks[index]
             tasks[index] = updatedTask
-            saveTasks()
+            storageManager.saveTask(updatedTask)
 
             // Update notification
             if updatedTask.hasReminder {
@@ -396,7 +454,7 @@ struct TaskManagerView: View {
                 notificationManager.cancelNotification(for: task)
             }
 
-            saveTasks()
+            storageManager.saveTask(tasks[index])
         }
     }
 
@@ -405,7 +463,7 @@ struct TaskManagerView: View {
         notificationManager.cancelNotification(for: task)
 
         tasks.removeAll { $0.id == task.id }
-        saveTasks()
+        storageManager.deleteTask(task)
     }
 
     private func scheduleNotificationIfAuthorized(for task: Task) {
@@ -418,10 +476,6 @@ struct TaskManagerView: View {
                 }
             }
         }
-    }
-
-    private func saveTasks() {
-        storageManager.saveTasks(tasks)
     }
 
     private func loadTasks() {

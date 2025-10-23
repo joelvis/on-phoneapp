@@ -6,7 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		5D4B43F42EA9D22E009AAD01 /* ToolboxDataModel.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = 5D4B43F22EA9D22E009AAD01 /* ToolboxDataModel.xcdatamodeld */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
+		5D4B43F32EA9D22E009AAD01 /* ToolboxDataModel.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = ToolboxDataModel.xcdatamodel; sourceTree = "<group>"; };
 		5D74E3A42EA2D6CB002B6D1F /* On phoneapp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "On phoneapp.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -32,6 +37,7 @@
 		5D74E39B2EA2D6CB002B6D1F = {
 			isa = PBXGroup;
 			children = (
+				5D4B43F22EA9D22E009AAD01 /* ToolboxDataModel.xcdatamodeld */,
 				5D74E3A62EA2D6CB002B6D1F /* On phoneapp */,
 				5D74E3A52EA2D6CB002B6D1F /* Products */,
 			);
@@ -119,6 +125,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5D4B43F42EA9D22E009AAD01 /* ToolboxDataModel.xcdatamodeld in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -359,6 +366,19 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCVersionGroup section */
+		5D4B43F22EA9D22E009AAD01 /* ToolboxDataModel.xcdatamodeld */ = {
+			isa = XCVersionGroup;
+			children = (
+				5D4B43F32EA9D22E009AAD01 /* ToolboxDataModel.xcdatamodel */,
+			);
+			currentVersion = 5D4B43F32EA9D22E009AAD01 /* ToolboxDataModel.xcdatamodel */;
+			path = ToolboxDataModel.xcdatamodeld;
+			sourceTree = "<group>";
+			versionGroupType = wrapper.xcdatamodel;
+		};
+/* End XCVersionGroup section */
 	};
 	rootObject = 5D74E39C2EA2D6CB002B6D1F /* Project object */;
 }

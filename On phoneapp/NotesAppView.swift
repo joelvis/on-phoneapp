@@ -22,22 +22,77 @@ struct Note: Identifiable, Codable {
     }
 }
 
-// MARK: - Notes Storage Manager
+// MARK: - Notes Storage Manager (Core Data)
 class NotesStorageManager {
-    private let notesKey = "saved_notes"
+    private let context = CoreDataManager.shared.viewContext
 
-    func saveNotes(_ notes: [Note]) {
-        if let encoded = try? JSONEncoder().encode(notes) {
-            UserDefaults.standard.set(encoded, forKey: notesKey)
+    // Load all notes from Core Data
+    func loadNotes() -> [Note] {
+        let fetchRequest: NSFetchRequest<NoteEntity> = NSFetchRequest(entityName: "NoteEntity")
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
+
+        do {
+            let noteEntities = try context.fetch(fetchRequest)
+            let notes = noteEntities.map { $0.toNote() }
+            print("✅ NotesStorageManager: Loaded \(notes.count) notes from Core Data")
+            return notes
+        } catch {
+            print("❌ NotesStorageManager: Failed to load notes: \(error.localizedDescription)")
+            return []
         }
     }
 
-    func loadNotes() -> [Note] {
-        guard let data = UserDefaults.standard.data(forKey: notesKey),
-              let notes = try? JSONDecoder().decode([Note].self, from: data) else {
-            return []
+    // Save a single note to Core Data
+    func saveNote(_ note: Note) {
+        // Check if note already exists
+        let fetchRequest: NSFetchRequest<NoteEntity> = NSFetchRequest(entityName: "NoteEntity")
+        fetchRequest.predicate = NSPredicate(format: "id == %@", note.id as CVarArg)
+
+        do {
+            let results = try context.fetch(fetchRequest)
+
+            if let existingNote = results.first {
+                // Update existing note
+                existingNote.title = note.title
+                existingNote.content = note.content
+                print("✅ NotesStorageManager: Updated note: \(note.title)")
+            } else {
+                // Create new note
+                _ = NoteEntity.from(note: note, context: context)
+                print("✅ NotesStorageManager: Created new note: \(note.title)")
+            }
+
+            try context.save()
+        } catch {
+            print("❌ NotesStorageManager: Failed to save note: \(error.localizedDescription)")
         }
-        return notes
+    }
+
+    // Delete a note from Core Data
+    func deleteNote(_ note: Note) {
+        let fetchRequest: NSFetchRequest<NoteEntity> = NSFetchRequest(entityName: "NoteEntity")
+        fetchRequest.predicate = NSPredicate(format: "id == %@", note.id as CVarArg)
+
+        do {
+            let results = try context.fetch(fetchRequest)
+            if let noteEntity = results.first {
+                context.delete(noteEntity)
+                try context.save()
+                print("✅ NotesStorageManager: Deleted note: \(note.title)")
+            }
+        } catch {
+            print("❌ NotesStorageManager: Failed to delete note: \(error.localizedDescription)")
+        }
+    }
+
+    // DEPRECATED: Kept for backwards compatibility during migration
+    // This method is no longer used with Core Data
+    func saveNotes(_ notes: [Note]) {
+        print("⚠️ NotesStorageManager: saveNotes(_:) is deprecated with Core Data")
+        // Save each note individually
+        for note in notes {
+            saveNote(note)
+        }
     }
 }
 
@@ -129,26 +184,22 @@ struct NotesAppView: View {
         }
     }
 
-    // MARK: - Note Operations
+    // MARK: - Note Operations (Core Data)
     private func addNote(_ note: Note) {
         notes.append(note)
-        saveNotes()
+        storageManager.saveNote(note)
     }
 
     private func updateNote(_ updatedNote: Note) {
         if let index = notes.firstIndex(where: { $0.id == updatedNote.id }) {
             notes[index] = updatedNote
-            saveNotes()
+            storageManager.saveNote(updatedNote)
         }
     }
 
     private func deleteNote(_ note: Note) {
         notes.removeAll { $0.id == note.id }
-        saveNotes()
-    }
-
-    private func saveNotes() {
-        storageManager.saveNotes(notes)
+        storageManager.deleteNote(note)
     }
 
     private func loadNotes() {

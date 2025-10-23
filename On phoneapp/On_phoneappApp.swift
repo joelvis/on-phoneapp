@@ -12,6 +12,19 @@ import UserNotifications
 struct ToolboxApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
+    // Initialize Core Data on app launch
+    init() {
+        print("🚀 ToolboxApp: Initializing Core Data...")
+
+        // Initialize persistent container (lazy property will load it)
+        _ = CoreDataManager.shared.persistentContainer
+
+        // Migrate data from UserDefaults to Core Data (runs once)
+        CoreDataManager.shared.migrateDataFromUserDefaults()
+
+        print("✅ ToolboxApp: Core Data initialization complete")
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

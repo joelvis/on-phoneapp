@@ -512,48 +512,55 @@ struct VaultItem: Identifiable, Codable {
     }
 }
 
-// MARK: - Encryption Manager
-class EncryptionManager {
-    private let keyTag = "com.onphoneapp.vault.encryptionkey"
+// MARK: - Keychain Helper for Per-File Encryption Keys
+class KeychainHelper {
+    private let servicePrefix = "com.onphoneapp.vault.filekey"
 
-    // Get or create encryption key from Keychain
-    private func getOrCreateKey() -> SymmetricKey {
-        // Try to load existing key from Keychain
-        if let existingKey = loadKeyFromKeychain() {
-            return existingKey
-        }
-
-        // Generate new key
-        let newKey = SymmetricKey(size: .bits256)
-        saveKeyToKeychain(newKey)
-        return newKey
+    // Generate a unique keychain service identifier for each file
+    private func keychainService(for filename: String) -> String {
+        return "\(servicePrefix).\(filename)"
     }
 
-    private func saveKeyToKeychain(_ key: SymmetricKey) {
+    // Save a symmetric key to Keychain for a specific file
+    func saveKey(_ key: SymmetricKey, forFile filename: String) -> Bool {
         let keyData = key.withUnsafeBytes { Data($0) }
+        let service = keychainService(for: filename)
 
+        // Create query for storing the key
         let query: [String: Any] = [
-            kSecClass as String: kSecClassKey,
-            kSecAttrApplicationTag as String: keyTag,
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: filename,
             kSecValueData as String: keyData,
+            // Only accessible when device is unlocked, never backed up to iCloud/iTunes
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
 
-        // Delete any existing key
+        // Delete any existing key for this file
         SecItemDelete(query as CFDictionary)
 
         // Add new key
         let status = SecItemAdd(query as CFDictionary, nil)
+
         if status != errSecSuccess {
-            print("Error saving encryption key: \(status)")
+            print("❌ KeychainHelper: Failed to save key for \(filename). Status: \(status)")
+            return false
         }
+
+        print("✅ KeychainHelper: Successfully saved key for \(filename)")
+        return true
     }
 
-    private func loadKeyFromKeychain() -> SymmetricKey? {
+    // Load a symmetric key from Keychain for a specific file
+    func loadKey(forFile filename: String) -> SymmetricKey? {
+        let service = keychainService(for: filename)
+
         let query: [String: Any] = [
-            kSecClass as String: kSecClassKey,
-            kSecAttrApplicationTag as String: keyTag,
-            kSecReturnData as String: true
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: filename,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
         ]
 
         var result: AnyObject?
@@ -561,37 +568,109 @@ class EncryptionManager {
 
         guard status == errSecSuccess,
               let keyData = result as? Data else {
+            if status != errSecItemNotFound {
+                print("⚠️ KeychainHelper: Failed to load key for \(filename). Status: \(status)")
+            }
             return nil
         }
 
         return SymmetricKey(data: keyData)
     }
 
-    // Encrypt data
-    func encrypt(_ data: Data) -> Data? {
-        let key = getOrCreateKey()
+    // Delete a key from Keychain for a specific file
+    func deleteKey(forFile filename: String) -> Bool {
+        let service = keychainService(for: filename)
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: filename
+        ]
+
+        let status = SecItemDelete(query as CFDictionary)
+
+        if status != errSecSuccess && status != errSecItemNotFound {
+            print("⚠️ KeychainHelper: Failed to delete key for \(filename). Status: \(status)")
+            return false
+        }
+
+        print("✅ KeychainHelper: Successfully deleted key for \(filename)")
+        return true
+    }
+
+    // Generate and save a new encryption key for a file
+    func generateAndSaveKey(forFile filename: String) -> SymmetricKey? {
+        // Generate a new AES-256 key
+        let newKey = SymmetricKey(size: .bits256)
+
+        // Save it to Keychain
+        guard saveKey(newKey, forFile: filename) else {
+            print("❌ KeychainHelper: Failed to save generated key for \(filename)")
+            return nil
+        }
+
+        return newKey
+    }
+}
+
+// MARK: - Enhanced Encryption Manager with Per-File Keys
+class EncryptionManager {
+    private let keychainHelper = KeychainHelper()
+
+    // Encrypt data with a per-file encryption key
+    // Generates a new key if one doesn't exist for this file
+    func encrypt(_ data: Data, forFile filename: String) -> Data? {
+        // Get or create encryption key for this specific file
+        guard let key = getOrCreateKey(forFile: filename) else {
+            print("❌ EncryptionManager: Failed to get encryption key for \(filename)")
+            return nil
+        }
 
         do {
+            // Encrypt using AES-GCM (provides both confidentiality and authenticity)
             let sealedBox = try AES.GCM.seal(data, using: key)
+            // Combined format includes: nonce + ciphertext + authentication tag
             return sealedBox.combined
         } catch {
-            print("Encryption error: \(error)")
+            print("❌ EncryptionManager: Encryption failed for \(filename): \(error.localizedDescription)")
             return nil
         }
     }
 
-    // Decrypt data
-    func decrypt(_ data: Data) -> Data? {
-        let key = getOrCreateKey()
+    // Decrypt data using the file's specific encryption key
+    func decrypt(_ data: Data, forFile filename: String) -> Data? {
+        // Load the encryption key for this specific file
+        guard let key = keychainHelper.loadKey(forFile: filename) else {
+            print("❌ EncryptionManager: No encryption key found for \(filename)")
+            return nil
+        }
 
         do {
+            // Reconstruct the sealed box from combined format
             let sealedBox = try AES.GCM.SealedBox(combined: data)
+            // Decrypt and verify authenticity
             let decryptedData = try AES.GCM.open(sealedBox, using: key)
             return decryptedData
         } catch {
-            print("Decryption error: \(error)")
+            print("❌ EncryptionManager: Decryption failed for \(filename): \(error.localizedDescription)")
             return nil
         }
+    }
+
+    // Get existing key or create a new one for a file
+    private func getOrCreateKey(forFile filename: String) -> SymmetricKey? {
+        // Try to load existing key
+        if let existingKey = keychainHelper.loadKey(forFile: filename) {
+            return existingKey
+        }
+
+        // Generate and save new key if none exists
+        return keychainHelper.generateAndSaveKey(forFile: filename)
+    }
+
+    // Delete the encryption key for a file (called when file is deleted)
+    func deleteKey(forFile filename: String) -> Bool {
+        return keychainHelper.deleteKey(forFile: filename)
     }
 }
 
@@ -638,73 +717,188 @@ class OCRManager {
     }
 }
 
-// MARK: - Vault Storage Manager
+// MARK: - Vault Storage Manager with Enhanced Security (Core Data)
 class VaultStorageManager {
-    private let itemsKey = "vault_items"
+    private let context = CoreDataManager.shared.viewContext
     private let encryptionManager = EncryptionManager()
     private let ocrManager = OCRManager()
 
-    func saveItems(_ items: [VaultItem]) {
-        if let encoded = try? JSONEncoder().encode(items) {
-            UserDefaults.standard.set(encoded, forKey: itemsKey)
-        }
-    }
-
+    // Load all vault items from Core Data
     func loadItems() -> [VaultItem] {
-        guard let data = UserDefaults.standard.data(forKey: itemsKey),
-              let items = try? JSONDecoder().decode([VaultItem].self, from: data) else {
+        let fetchRequest: NSFetchRequest<VaultItemEntity> = NSFetchRequest(entityName: "VaultItemEntity")
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
+
+        do {
+            let itemEntities = try context.fetch(fetchRequest)
+            let items = itemEntities.map { $0.toVaultItem() }
+            print("✅ VaultStorageManager: Loaded \(items.count) vault items from Core Data")
+            return items
+        } catch {
+            print("❌ VaultStorageManager: Failed to load vault items: \(error.localizedDescription)")
             return []
         }
-        return items
     }
 
-    // Get documents directory for storing images
+    // Save a single vault item to Core Data
+    func saveItem(_ item: VaultItem) {
+        // Check if item already exists
+        let fetchRequest: NSFetchRequest<VaultItemEntity> = NSFetchRequest(entityName: "VaultItemEntity")
+        fetchRequest.predicate = NSPredicate(format: "id == %@", item.id as CVarArg)
+
+        do {
+            let results = try context.fetch(fetchRequest)
+
+            if let existingItem = results.first {
+                // Update existing item
+                existingItem.update(from: item)
+                print("✅ VaultStorageManager: Updated vault item: \(item.title)")
+            } else {
+                // Create new item
+                _ = VaultItemEntity.from(item: item, context: context)
+                print("✅ VaultStorageManager: Created new vault item: \(item.title)")
+            }
+
+            try context.save()
+        } catch {
+            print("❌ VaultStorageManager: Failed to save vault item: \(error.localizedDescription)")
+        }
+    }
+
+    // Delete a vault item from Core Data
+    func deleteItem(_ item: VaultItem) {
+        let fetchRequest: NSFetchRequest<VaultItemEntity> = NSFetchRequest(entityName: "VaultItemEntity")
+        fetchRequest.predicate = NSPredicate(format: "id == %@", item.id as CVarArg)
+
+        do {
+            let results = try context.fetch(fetchRequest)
+            if let itemEntity = results.first {
+                context.delete(itemEntity)
+                try context.save()
+                print("✅ VaultStorageManager: Deleted vault item from Core Data: \(item.title)")
+            }
+        } catch {
+            print("❌ VaultStorageManager: Failed to delete vault item: \(error.localizedDescription)")
+        }
+    }
+
+    // DEPRECATED: Kept for backwards compatibility during migration
+    // This method is no longer used with Core Data
+    func saveItems(_ items: [VaultItem]) {
+        print("⚠️ VaultStorageManager: saveItems(_:) is deprecated with Core Data")
+        // Save each item individually
+        for item in items {
+            saveItem(item)
+        }
+    }
+
+    // Get documents directory for storing encrypted files
     func getDocumentsDirectory() -> URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
 
+    // Save image with per-file encryption and NSFileProtectionComplete
     func saveImage(_ image: UIImage, filename: String) -> Bool {
-        guard let imageData = image.jpegData(compressionQuality: 0.8) else { return false }
-
-        // Encrypt the image data
-        guard let encryptedData = encryptionManager.encrypt(imageData) else {
-            print("Error encrypting image")
+        // Convert image to JPEG data
+        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+            print("❌ VaultStorageManager: Failed to convert image to JPEG data")
             return false
         }
 
-        let url = getDocumentsDirectory().appendingPathComponent(filename)
+        // Encrypt the image data with a unique per-file key
+        guard let encryptedData = encryptionManager.encrypt(imageData, forFile: filename) else {
+            print("❌ VaultStorageManager: Failed to encrypt image data for \(filename)")
+            return false
+        }
+
+        let fileURL = getDocumentsDirectory().appendingPathComponent(filename)
+
         do {
-            try encryptedData.write(to: url)
+            // Write encrypted data to file
+            try encryptedData.write(to: fileURL, options: .atomic)
+
+            // Set NSFileProtectionComplete for maximum security
+            // File becomes inaccessible when device is locked
+            try FileManager.default.setAttributes(
+                [.protectionKey: FileProtectionType.complete],
+                ofItemAtPath: fileURL.path
+            )
+
+            print("✅ VaultStorageManager: Successfully saved and protected \(filename)")
             return true
-        } catch {
-            print("Error saving image: \(error)")
+
+        } catch let error as NSError {
+            print("❌ VaultStorageManager: Failed to save image \(filename): \(error.localizedDescription)")
+
+            // Clean up: delete the file if it was partially written
+            try? FileManager.default.removeItem(at: fileURL)
+
+            // Clean up: delete the encryption key from Keychain
+            _ = encryptionManager.deleteKey(forFile: filename)
+
             return false
         }
     }
 
+    // Load and decrypt image using per-file key
     func loadImage(filename: String) -> UIImage? {
-        let url = getDocumentsDirectory().appendingPathComponent(filename)
+        let fileURL = getDocumentsDirectory().appendingPathComponent(filename)
 
-        // Load encrypted data
-        guard let encryptedData = try? Data(contentsOf: url) else {
+        // Check if file is accessible (device must be unlocked due to FileProtectionComplete)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            print("⚠️ VaultStorageManager: File not found or device is locked: \(filename)")
             return nil
         }
 
-        // Decrypt the data
-        guard let decryptedData = encryptionManager.decrypt(encryptedData) else {
-            print("Error decrypting image")
+        do {
+            // Load encrypted data from file
+            let encryptedData = try Data(contentsOf: fileURL)
+
+            // Decrypt using the file-specific key
+            guard let decryptedData = encryptionManager.decrypt(encryptedData, forFile: filename) else {
+                print("❌ VaultStorageManager: Failed to decrypt \(filename)")
+                return nil
+            }
+
+            // Convert decrypted data to UIImage
+            guard let image = UIImage(data: decryptedData) else {
+                print("❌ VaultStorageManager: Failed to create image from decrypted data for \(filename)")
+                return nil
+            }
+
+            return image
+
+        } catch let error as NSError {
+            // Handle specific error when file is protected and device is locked
+            if error.code == NSFileReadNoPermissionError {
+                print("⚠️ VaultStorageManager: Cannot access \(filename) - device may be locked")
+            } else {
+                print("❌ VaultStorageManager: Failed to load \(filename): \(error.localizedDescription)")
+            }
             return nil
         }
-
-        return UIImage(data: decryptedData)
     }
 
+    // Delete image file and its encryption key
     func deleteImage(filename: String) {
-        let url = getDocumentsDirectory().appendingPathComponent(filename)
-        try? FileManager.default.removeItem(at: url)
+        let fileURL = getDocumentsDirectory().appendingPathComponent(filename)
+
+        // Delete the encrypted file from disk
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+            print("✅ VaultStorageManager: Deleted file \(filename)")
+        } catch {
+            print("⚠️ VaultStorageManager: Failed to delete file \(filename): \(error.localizedDescription)")
+        }
+
+        // Delete the encryption key from Keychain
+        if encryptionManager.deleteKey(forFile: filename) {
+            print("✅ VaultStorageManager: Deleted encryption key for \(filename)")
+        } else {
+            print("⚠️ VaultStorageManager: Failed to delete encryption key for \(filename)")
+        }
     }
 
-    // Perform OCR on an image
+    // Perform OCR on an image (works with decrypted image in memory)
     func performOCR(on image: UIImage, completion: @escaping (String?) -> Void) {
         ocrManager.extractText(from: image, completion: completion)
     }
@@ -1339,22 +1533,18 @@ struct VaultView: View {
         }
     }
 
-    // MARK: - Data Operations
+    // MARK: - Data Operations (Core Data)
     private func loadItems() {
         items = storageManager.loadItems()
-    }
-
-    private func saveItems() {
-        storageManager.saveItems(items)
     }
 
     private func addVaultItem(image: UIImage, title: String, category: String, tags: [String], notes: String?) {
         // Generate unique filename
         let filename = "\(UUID().uuidString).jpg"
 
-        // Save image to documents directory
+        // Save encrypted image to documents directory
         guard storageManager.saveImage(image, filename: filename) else {
-            print("Error saving image")
+            print("Error saving encrypted image")
             return
         }
 
@@ -1371,15 +1561,15 @@ struct VaultView: View {
                     extractedText: extractedText
                 )
 
-                // Add to items array and save
+                // Add to items array and save to Core Data
                 self.items.insert(item, at: 0)
-                self.saveItems()
+                self.storageManager.saveItem(item)
             }
         }
     }
 
     private func deleteItem(_ item: VaultItem) {
-        // Delete the image file
+        // Delete the encrypted image file and its encryption key
         storageManager.deleteImage(filename: item.imageName)
 
         // Delete thumbnail if it exists
@@ -1390,15 +1580,15 @@ struct VaultView: View {
         // Remove from items array
         items.removeAll { $0.id == item.id }
 
-        // Save updated items
-        saveItems()
+        // Delete from Core Data
+        storageManager.deleteItem(item)
     }
 
     private func updateItem(_ updatedItem: VaultItem) {
         // Find and replace the item in the array
         if let index = items.firstIndex(where: { $0.id == updatedItem.id }) {
             items[index] = updatedItem
-            saveItems()
+            storageManager.saveItem(updatedItem)
         }
     }
 }
