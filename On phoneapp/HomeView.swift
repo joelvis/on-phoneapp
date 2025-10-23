@@ -1,6 +1,6 @@
 //
 //  HomeView.swift
-//  On phoneapp
+//  Toolbox
 //
 //  Created by Joel  on 10/18/25.
 //
@@ -14,35 +14,156 @@ struct HomeView: View {
 
     var body: some View {
         ZStack {
-            // Darker blue background
-            Color(red: 0.1, green: 0.2, blue: 0.4)
-                .ignoresSafeArea()
+            // Gradient background
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    Color(red: 0.08, green: 0.15, blue: 0.35),
+                    Color(red: 0.15, green: 0.25, blue: 0.45)
+                ]),
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
 
-            VStack(spacing: 20) {
+            // Dimmed toolbox outline background
+            DimmedToolboxOutline()
+                .opacity(0.08)
+                .offset(y: 50)
+
+            // Content
+            VStack(spacing: 30) {
                 Spacer()
 
-                // Welcome text
-                Text("Welcome")
-                    .font(.system(.largeTitle, design: .rounded))
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
+                // App title
+                VStack(spacing: 8) {
+                    Image(systemName: "wrench.and.screwdriver.fill")
+                        .font(.system(size: 50))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.white, .white.opacity(0.7)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
 
-                // Time display
-                Text(currentTime, style: .time)
-                    .font(.system(size: 72, weight: .thin, design: .rounded))
-                    .foregroundColor(.white)
+                    Text("Toolbox")
+                        .font(.system(size: 48, weight: .bold, design: .rounded))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.white, .white.opacity(0.9)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                }
+                .padding(.bottom, 20)
 
-                // Date display
-                Text(currentTime, format: .dateTime.weekday(.wide).month().day().year())
-                    .font(.system(.title3, design: .rounded))
-                    .foregroundColor(.white.opacity(0.8))
+                // Time display with modern styling
+                VStack(spacing: 8) {
+                    Text(currentTime, style: .time)
+                        .font(.system(size: 80, weight: .ultraLight, design: .rounded))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
+
+                    // Date display
+                    Text(currentTime, format: .dateTime.weekday(.wide).month().day().year())
+                        .font(.system(.title3, design: .rounded))
+                        .fontWeight(.medium)
+                        .foregroundColor(.white.opacity(0.85))
+                        .tracking(1)
+                }
 
                 Spacer()
+
+                // Subtle tagline
+                Text("Your essential toolkit")
+                    .font(.system(.subheadline, design: .rounded))
+                    .foregroundColor(.white.opacity(0.5))
+                    .tracking(2)
+                    .textCase(.uppercase)
+                    .padding(.bottom, 40)
             }
         }
         .onReceive(timer) { _ in
             currentTime = Date()
         }
+        .statusBarHidden(true)
+    }
+}
+
+// MARK: - Dimmed Toolbox Outline
+struct DimmedToolboxOutline: View {
+    var body: some View {
+        Canvas { context, size in
+            let width = size.width
+            let height = size.height
+            let centerX = width / 2
+            let centerY = height / 2
+
+            // Toolbox body dimensions
+            let boxWidth: CGFloat = width * 0.6
+            let boxHeight: CGFloat = height * 0.35
+            let boxX = centerX - boxWidth / 2
+            let boxY = centerY - boxHeight / 2
+
+            // Main toolbox body (rectangle)
+            let bodyPath = Path { path in
+                let rect = CGRect(x: boxX, y: boxY, width: boxWidth, height: boxHeight)
+                path.addRoundedRect(in: rect, cornerSize: CGSize(width: 8, height: 8))
+            }
+
+            // Handle on top
+            let handleWidth: CGFloat = boxWidth * 0.4
+            let handleHeight: CGFloat = height * 0.08
+            let handleX = centerX - handleWidth / 2
+            let handleY = boxY - handleHeight - 5
+
+            let handlePath = Path { path in
+                // Handle arc
+                path.move(to: CGPoint(x: handleX, y: handleY + handleHeight))
+                path.addQuadCurve(
+                    to: CGPoint(x: handleX + handleWidth, y: handleY + handleHeight),
+                    control: CGPoint(x: centerX, y: handleY - handleHeight * 0.5)
+                )
+            }
+
+            // Horizontal divider in middle of box
+            let dividerPath = Path { path in
+                path.move(to: CGPoint(x: boxX, y: centerY))
+                path.addLine(to: CGPoint(x: boxX + boxWidth, y: centerY))
+            }
+
+            // Vertical dividers creating compartments
+            let leftDividerPath = Path { path in
+                path.move(to: CGPoint(x: boxX + boxWidth * 0.33, y: boxY))
+                path.addLine(to: CGPoint(x: boxX + boxWidth * 0.33, y: boxY + boxHeight))
+            }
+
+            let rightDividerPath = Path { path in
+                path.move(to: CGPoint(x: boxX + boxWidth * 0.67, y: boxY))
+                path.addLine(to: CGPoint(x: boxX + boxWidth * 0.67, y: boxY + boxHeight))
+            }
+
+            // Latch clasp
+            let latchWidth: CGFloat = boxWidth * 0.15
+            let latchHeight: CGFloat = height * 0.04
+            let latchX = centerX - latchWidth / 2
+            let latchY = boxY + boxHeight - 5
+
+            let latchPath = Path { path in
+                let rect = CGRect(x: latchX, y: latchY, width: latchWidth, height: latchHeight)
+                path.addRoundedRect(in: rect, cornerSize: CGSize(width: 3, height: 3))
+            }
+
+            // Draw all parts with white stroke
+            context.stroke(bodyPath, with: .color(.white), lineWidth: 2.5)
+            context.stroke(handlePath, with: .color(.white), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+            context.stroke(dividerPath, with: .color(.white), lineWidth: 1.5)
+            context.stroke(leftDividerPath, with: .color(.white), lineWidth: 1.5)
+            context.stroke(rightDividerPath, with: .color(.white), lineWidth: 1.5)
+            context.stroke(latchPath, with: .color(.white), lineWidth: 2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

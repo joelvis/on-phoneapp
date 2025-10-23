@@ -1,6 +1,6 @@
 //
 //  TaskManagerView.swift
-//  On phoneapp
+//  Toolbox
 //
 //  Created by Joel  on 10/18/25.
 //
@@ -268,6 +268,16 @@ struct TaskManagerView: View {
             .navigationTitle("Tasks")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: {
+                        checkPendingNotifications()
+                    }) {
+                        Image(systemName: "bell.badge")
+                            .font(.body)
+                            .foregroundColor(.orange)
+                    }
+                }
+
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: {
                         showingAddTask = true
@@ -416,6 +426,26 @@ struct TaskManagerView: View {
 
     private func loadTasks() {
         tasks = storageManager.loadTasks()
+    }
+
+    private func checkPendingNotifications() {
+        notificationManager.getPendingNotifications { requests in
+            print("\n📋 === PENDING NOTIFICATIONS DEBUG ===")
+            print("Total pending: \(requests.count)")
+            for request in requests {
+                print("---")
+                print("ID: \(request.identifier)")
+                print("Title: \(request.content.title)")
+                print("Body: \(request.content.body)")
+                if let trigger = request.trigger as? UNTimeIntervalNotificationTrigger {
+                    let fireDate = Date(timeIntervalSinceNow: trigger.timeInterval)
+                    print("Will fire at: \(fireDate)")
+                    print("In: \(trigger.timeInterval) seconds")
+                }
+                print("---")
+            }
+            print("=== END DEBUG ===\n")
+        }
     }
 }
 
@@ -658,8 +688,18 @@ struct AddTaskView: View {
                                 }
 
                                 if hasReminder {
-                                    DatePicker("Reminder Time", selection: $reminderTime, displayedComponents: [.date, .hourAndMinute])
+                                    DatePicker("Reminder Time", selection: $reminderTime, in: Date()..., displayedComponents: [.date, .hourAndMinute])
                                         .datePickerStyle(.compact)
+
+                                    // Show helpful hint
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "info.circle")
+                                            .font(.caption2)
+                                        Text("Notification will be sent at this time")
+                                            .font(.caption)
+                                    }
+                                    .foregroundColor(.secondary)
+                                    .padding(.top, 4)
                                 }
                             }
                             .padding()

@@ -1,6 +1,6 @@
 //
 //  VaultView.swift
-//  On phoneapp
+//  Toolbox
 //
 //  Created by Joel  on 10/18/25.
 //
@@ -9,8 +9,11 @@ import SwiftUI
 import PhotosUI
 import UIKit
 import VisionKit
+import Vision
 import LocalAuthentication
 import Combine
+import CryptoKit
+import Security
 
 // MARK: - Biometric Authentication Manager
 class BiometricAuthManager: ObservableObject {
@@ -494,8 +497,9 @@ struct VaultItem: Identifiable, Codable {
     var createdAt: Date
     var tags: [String]
     var notes: String?
+    var extractedText: String? // OCR extracted text for search
 
-    init(id: UUID = UUID(), title: String, category: String, imageName: String, thumbnailName: String? = nil, createdAt: Date = Date(), tags: [String] = [], notes: String? = nil) {
+    init(id: UUID = UUID(), title: String, category: String, imageName: String, thumbnailName: String? = nil, createdAt: Date = Date(), tags: [String] = [], notes: String? = nil, extractedText: String? = nil) {
         self.id = id
         self.title = title
         self.category = category
@@ -504,12 +508,141 @@ struct VaultItem: Identifiable, Codable {
         self.createdAt = createdAt
         self.tags = tags
         self.notes = notes
+        self.extractedText = extractedText
+    }
+}
+
+// MARK: - Encryption Manager
+class EncryptionManager {
+    private let keyTag = "com.onphoneapp.vault.encryptionkey"
+
+    // Get or create encryption key from Keychain
+    private func getOrCreateKey() -> SymmetricKey {
+        // Try to load existing key from Keychain
+        if let existingKey = loadKeyFromKeychain() {
+            return existingKey
+        }
+
+        // Generate new key
+        let newKey = SymmetricKey(size: .bits256)
+        saveKeyToKeychain(newKey)
+        return newKey
+    }
+
+    private func saveKeyToKeychain(_ key: SymmetricKey) {
+        let keyData = key.withUnsafeBytes { Data($0) }
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassKey,
+            kSecAttrApplicationTag as String: keyTag,
+            kSecValueData as String: keyData,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+
+        // Delete any existing key
+        SecItemDelete(query as CFDictionary)
+
+        // Add new key
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status != errSecSuccess {
+            print("Error saving encryption key: \(status)")
+        }
+    }
+
+    private func loadKeyFromKeychain() -> SymmetricKey? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassKey,
+            kSecAttrApplicationTag as String: keyTag,
+            kSecReturnData as String: true
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess,
+              let keyData = result as? Data else {
+            return nil
+        }
+
+        return SymmetricKey(data: keyData)
+    }
+
+    // Encrypt data
+    func encrypt(_ data: Data) -> Data? {
+        let key = getOrCreateKey()
+
+        do {
+            let sealedBox = try AES.GCM.seal(data, using: key)
+            return sealedBox.combined
+        } catch {
+            print("Encryption error: \(error)")
+            return nil
+        }
+    }
+
+    // Decrypt data
+    func decrypt(_ data: Data) -> Data? {
+        let key = getOrCreateKey()
+
+        do {
+            let sealedBox = try AES.GCM.SealedBox(combined: data)
+            let decryptedData = try AES.GCM.open(sealedBox, using: key)
+            return decryptedData
+        } catch {
+            print("Decryption error: \(error)")
+            return nil
+        }
+    }
+}
+
+// MARK: - OCR Manager
+class OCRManager {
+    // Extract text from image using Vision framework
+    func extractText(from image: UIImage, completion: @escaping (String?) -> Void) {
+        guard let cgImage = image.cgImage else {
+            completion(nil)
+            return
+        }
+
+        let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        let request = VNRecognizeTextRequest { request, error in
+            guard error == nil else {
+                print("OCR Error: \(error!.localizedDescription)")
+                completion(nil)
+                return
+            }
+
+            guard let observations = request.results as? [VNRecognizedTextObservation] else {
+                completion(nil)
+                return
+            }
+
+            // Combine all recognized text
+            let recognizedText = observations.compactMap { observation in
+                observation.topCandidates(1).first?.string
+            }.joined(separator: "\n")
+
+            completion(recognizedText.isEmpty ? nil : recognizedText)
+        }
+
+        // Configure for accurate text recognition
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+
+        do {
+            try requestHandler.perform([request])
+        } catch {
+            print("Failed to perform OCR: \(error)")
+            completion(nil)
+        }
     }
 }
 
 // MARK: - Vault Storage Manager
 class VaultStorageManager {
     private let itemsKey = "vault_items"
+    private let encryptionManager = EncryptionManager()
+    private let ocrManager = OCRManager()
 
     func saveItems(_ items: [VaultItem]) {
         if let encoded = try? JSONEncoder().encode(items) {
@@ -531,10 +664,17 @@ class VaultStorageManager {
     }
 
     func saveImage(_ image: UIImage, filename: String) -> Bool {
-        guard let data = image.jpegData(compressionQuality: 0.8) else { return false }
+        guard let imageData = image.jpegData(compressionQuality: 0.8) else { return false }
+
+        // Encrypt the image data
+        guard let encryptedData = encryptionManager.encrypt(imageData) else {
+            print("Error encrypting image")
+            return false
+        }
+
         let url = getDocumentsDirectory().appendingPathComponent(filename)
         do {
-            try data.write(to: url)
+            try encryptedData.write(to: url)
             return true
         } catch {
             print("Error saving image: \(error)")
@@ -544,12 +684,29 @@ class VaultStorageManager {
 
     func loadImage(filename: String) -> UIImage? {
         let url = getDocumentsDirectory().appendingPathComponent(filename)
-        return UIImage(contentsOfFile: url.path)
+
+        // Load encrypted data
+        guard let encryptedData = try? Data(contentsOf: url) else {
+            return nil
+        }
+
+        // Decrypt the data
+        guard let decryptedData = encryptionManager.decrypt(encryptedData) else {
+            print("Error decrypting image")
+            return nil
+        }
+
+        return UIImage(data: decryptedData)
     }
 
     func deleteImage(filename: String) {
         let url = getDocumentsDirectory().appendingPathComponent(filename)
         try? FileManager.default.removeItem(at: url)
+    }
+
+    // Perform OCR on an image
+    func performOCR(on image: UIImage, completion: @escaping (String?) -> Void) {
+        ocrManager.extractText(from: image, completion: completion)
     }
 }
 
@@ -919,12 +1076,13 @@ struct VaultView: View {
             filtered = filtered.filter { $0.category == selectedCategory }
         }
 
-        // Filter by search
+        // Filter by search (includes OCR text)
         if !searchText.isEmpty {
             filtered = filtered.filter { item in
                 item.title.localizedCaseInsensitiveContains(searchText) ||
                 item.category.localizedCaseInsensitiveContains(searchText) ||
-                item.tags.contains(where: { $0.localizedCaseInsensitiveContains(searchText) })
+                item.tags.contains(where: { $0.localizedCaseInsensitiveContains(searchText) }) ||
+                (item.extractedText?.localizedCaseInsensitiveContains(searchText) ?? false)
             }
         }
 
@@ -1154,7 +1312,11 @@ struct VaultView: View {
                 GridItem(.flexible(), spacing: 16)
             ], spacing: 16) {
                 ForEach(filteredItems) { item in
-                    VaultItemGridCard(item: item, storageManager: storageManager)
+                    VaultItemGridCard(item: item, storageManager: storageManager, onDelete: {
+                        deleteItem(item)
+                    }, onUpdate: { updatedItem in
+                        updateItem(updatedItem)
+                    })
                 }
             }
             .padding()
@@ -1166,7 +1328,11 @@ struct VaultView: View {
         ScrollView {
             VStack(spacing: 12) {
                 ForEach(filteredItems) { item in
-                    VaultItemListRow(item: item, storageManager: storageManager)
+                    VaultItemListRow(item: item, storageManager: storageManager, onDelete: {
+                        deleteItem(item)
+                    }, onUpdate: { updatedItem in
+                        updateItem(updatedItem)
+                    })
                 }
             }
             .padding()
@@ -1192,18 +1358,48 @@ struct VaultView: View {
             return
         }
 
-        // Create vault item
-        let item = VaultItem(
-            title: title,
-            category: category,
-            imageName: filename,
-            tags: tags,
-            notes: notes
-        )
+        // Perform OCR on the image
+        storageManager.performOCR(on: image) { extractedText in
+            DispatchQueue.main.async {
+                // Create vault item with OCR text
+                let item = VaultItem(
+                    title: title,
+                    category: category,
+                    imageName: filename,
+                    tags: tags,
+                    notes: notes,
+                    extractedText: extractedText
+                )
 
-        // Add to items array and save
-        items.insert(item, at: 0)
+                // Add to items array and save
+                self.items.insert(item, at: 0)
+                self.saveItems()
+            }
+        }
+    }
+
+    private func deleteItem(_ item: VaultItem) {
+        // Delete the image file
+        storageManager.deleteImage(filename: item.imageName)
+
+        // Delete thumbnail if it exists
+        if let thumbnailName = item.thumbnailName {
+            storageManager.deleteImage(filename: thumbnailName)
+        }
+
+        // Remove from items array
+        items.removeAll { $0.id == item.id }
+
+        // Save updated items
         saveItems()
+    }
+
+    private func updateItem(_ updatedItem: VaultItem) {
+        // Find and replace the item in the array
+        if let index = items.firstIndex(where: { $0.id == updatedItem.id }) {
+            items[index] = updatedItem
+            saveItems()
+        }
     }
 }
 
@@ -1238,94 +1434,516 @@ struct CategoryPill: View {
     }
 }
 
+// MARK: - Vault Item Detail View
+struct VaultItemDetailView: View {
+    let item: VaultItem
+    let storageManager: VaultStorageManager
+    let onDelete: () -> Void
+    let onUpdate: (VaultItem) -> Void
+
+    @Environment(\.dismiss) var dismiss
+    @State private var showingShareSheet = false
+    @State private var showingDeleteConfirmation = false
+    @State private var showingEditSheet = false
+    @State private var imageToShare: UIImage?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Full Image
+                if let image = storageManager.loadImage(filename: item.imageName) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .cornerRadius(12)
+                        .shadow(radius: 5)
+                        .onAppear {
+                            imageToShare = image
+                        }
+                } else {
+                    ZStack {
+                        Rectangle()
+                            .fill(Color(uiColor: .tertiarySystemBackground))
+                            .frame(height: 300)
+                            .cornerRadius(12)
+
+                        Image(systemName: "photo")
+                            .font(.system(size: 60))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                // Title
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Title")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .textCase(.uppercase)
+
+                    Text(item.title)
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(uiColor: .secondarySystemBackground))
+                .cornerRadius(12)
+
+                // Category
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Category")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .textCase(.uppercase)
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "folder.fill")
+                            .font(.body)
+                        Text(item.category)
+                            .font(.body)
+                    }
+                    .foregroundColor(.blue)
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(uiColor: .secondarySystemBackground))
+                .cornerRadius(12)
+
+                // Tags
+                if !item.tags.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Tags")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .textCase(.uppercase)
+
+                        FlowLayout(spacing: 8) {
+                            ForEach(item.tags, id: \.self) { tag in
+                                Text("#\(tag)")
+                                    .font(.subheadline)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Color.blue.opacity(0.1))
+                                    .foregroundColor(.blue)
+                                    .cornerRadius(16)
+                            }
+                        }
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(uiColor: .secondarySystemBackground))
+                    .cornerRadius(12)
+                }
+
+                // Notes
+                if let notes = item.notes, !notes.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Notes")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .textCase(.uppercase)
+
+                        Text(notes)
+                            .font(.body)
+                            .foregroundColor(.primary)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(uiColor: .secondarySystemBackground))
+                    .cornerRadius(12)
+                }
+
+                // Extracted Text (OCR)
+                if let extractedText = item.extractedText, !extractedText.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Extracted Text")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .textCase(.uppercase)
+
+                            Spacer()
+
+                            Label("OCR", systemImage: "text.viewfinder")
+                                .font(.caption2)
+                                .foregroundColor(.blue)
+                        }
+
+                        Text(extractedText)
+                            .font(.body)
+                            .foregroundColor(.primary)
+                            .textSelection(.enabled)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(uiColor: .secondarySystemBackground))
+                    .cornerRadius(12)
+                }
+
+                // Created Date
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Created")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .textCase(.uppercase)
+
+                    Text(item.createdAt, style: .date)
+                        .font(.body)
+                    Text(item.createdAt, style: .time)
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(uiColor: .secondarySystemBackground))
+                .cornerRadius(12)
+
+                // Delete Button
+                Button(action: {
+                    showingDeleteConfirmation = true
+                }) {
+                    HStack {
+                        Image(systemName: "trash.fill")
+                        Text("Delete Document")
+                    }
+                    .font(.body)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.red)
+                    .cornerRadius(12)
+                }
+                .padding(.top, 20)
+            }
+            .padding()
+        }
+        .navigationTitle("Document Details")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: {
+                    showingEditSheet = true
+                }) {
+                    Text("Edit")
+                        .font(.body)
+                }
+            }
+
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: {
+                    showingShareSheet = true
+                }) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.body)
+                }
+            }
+        }
+        .sheet(isPresented: $showingShareSheet) {
+            if let image = imageToShare {
+                ShareSheet(items: [image])
+            }
+        }
+        .sheet(isPresented: $showingEditSheet) {
+            EditVaultItemView(item: item, onSave: { updatedItem in
+                onUpdate(updatedItem)
+                showingEditSheet = false
+            })
+        }
+        .alert("Delete Document", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                onDelete()
+                dismiss()
+            }
+        } message: {
+            Text("Are you sure you want to delete '\(item.title)'? This action cannot be undone.")
+        }
+    }
+}
+
+// MARK: - Edit Vault Item View
+struct EditVaultItemView: View {
+    let item: VaultItem
+    let onSave: (VaultItem) -> Void
+
+    @Environment(\.dismiss) var dismiss
+    @State private var editedTitle: String
+    @State private var editedCategory: String
+    @State private var editedTags: String
+    @State private var editedNotes: String
+    @FocusState private var isTextFieldFocused: Bool
+
+    // Predefined categories
+    let predefinedCategories = ["Taxes", "Rental Property", "Receipts", "Insurance", "Medical", "Personal", "Business", "Legal", "Education", "Other"]
+
+    init(item: VaultItem, onSave: @escaping (VaultItem) -> Void) {
+        self.item = item
+        self.onSave = onSave
+        _editedTitle = State(initialValue: item.title)
+        _editedCategory = State(initialValue: item.category)
+        _editedTags = State(initialValue: item.tags.joined(separator: ", "))
+        _editedNotes = State(initialValue: item.notes ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(uiColor: .systemBackground)
+                    .ignoresSafeArea()
+
+                ScrollView {
+                    VStack(spacing: 20) {
+                        // Title
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Title")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+
+                            TextField("Enter title", text: $editedTitle)
+                                .padding()
+                                .background(Color(uiColor: .tertiarySystemBackground))
+                                .cornerRadius(8)
+                                .font(.body)
+                                .focused($isTextFieldFocused)
+                        }
+                        .padding()
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        .cornerRadius(12)
+
+                        // Category
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Category")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+
+                            Menu {
+                                ForEach(predefinedCategories, id: \.self) { cat in
+                                    Button(cat) {
+                                        editedCategory = cat
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    Text(editedCategory.isEmpty ? "Select category" : editedCategory)
+                                        .foregroundColor(editedCategory.isEmpty ? .secondary : .primary)
+                                    Spacer()
+                                    Image(systemName: "chevron.down")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding()
+                                .background(Color(uiColor: .tertiarySystemBackground))
+                                .cornerRadius(8)
+                            }
+
+                            TextField("Or enter custom category", text: $editedCategory)
+                                .padding()
+                                .background(Color(uiColor: .tertiarySystemBackground))
+                                .cornerRadius(8)
+                                .font(.body)
+                        }
+                        .padding()
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        .cornerRadius(12)
+
+                        // Tags
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Tags (Optional)")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+
+                            TextField("Separate tags with commas", text: $editedTags)
+                                .padding()
+                                .background(Color(uiColor: .tertiarySystemBackground))
+                                .cornerRadius(8)
+                                .font(.body)
+
+                            if !editedTags.isEmpty {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 6) {
+                                        ForEach(editedTags.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }, id: \.self) { tag in
+                                            if !tag.isEmpty {
+                                                Text("#\(tag)")
+                                                    .font(.caption)
+                                                    .padding(.horizontal, 8)
+                                                    .padding(.vertical, 4)
+                                                    .background(Color.blue.opacity(0.1))
+                                                    .foregroundColor(.blue)
+                                                    .cornerRadius(8)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .padding()
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        .cornerRadius(12)
+
+                        // Notes
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Notes (Optional)")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+
+                            TextEditor(text: $editedNotes)
+                                .frame(height: 100)
+                                .padding(4)
+                                .background(Color(uiColor: .tertiarySystemBackground))
+                                .cornerRadius(8)
+                                .scrollContentBackground(.hidden)
+                        }
+                        .padding()
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        .cornerRadius(12)
+                    }
+                    .padding()
+                }
+            }
+            .navigationTitle("Edit Document")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Save") {
+                        saveChanges()
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(editedTitle.trimmingCharacters(in: .whitespaces).isEmpty || editedCategory.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+    }
+
+    private func saveChanges() {
+        let tagArray = editedTags.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+
+        let notesText = editedNotes.trimmingCharacters(in: .whitespaces)
+
+        var updatedItem = item
+        updatedItem.title = editedTitle
+        updatedItem.category = editedCategory
+        updatedItem.tags = tagArray
+        updatedItem.notes = notesText.isEmpty ? nil : notesText
+
+        onSave(updatedItem)
+        dismiss()
+    }
+}
+
+// MARK: - Share Sheet
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+// MARK: - Flow Layout for Tags
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = FlowResult(
+            in: proposal.replacingUnspecifiedDimensions().width,
+            subviews: subviews,
+            spacing: spacing
+        )
+        return result.size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = FlowResult(
+            in: bounds.width,
+            subviews: subviews,
+            spacing: spacing
+        )
+        for (index, subview) in subviews.enumerated() {
+            subview.place(at: CGPoint(x: bounds.minX + result.frames[index].minX, y: bounds.minY + result.frames[index].minY), proposal: .unspecified)
+        }
+    }
+
+    struct FlowResult {
+        var frames: [CGRect] = []
+        var size: CGSize = .zero
+
+        init(in maxWidth: CGFloat, subviews: Subviews, spacing: CGFloat) {
+            var currentX: CGFloat = 0
+            var currentY: CGFloat = 0
+            var lineHeight: CGFloat = 0
+
+            for subview in subviews {
+                let size = subview.sizeThatFits(.unspecified)
+
+                if currentX + size.width > maxWidth && currentX > 0 {
+                    currentX = 0
+                    currentY += lineHeight + spacing
+                    lineHeight = 0
+                }
+
+                frames.append(CGRect(x: currentX, y: currentY, width: size.width, height: size.height))
+                lineHeight = max(lineHeight, size.height)
+                currentX += size.width + spacing
+            }
+
+            self.size = CGSize(width: maxWidth, height: currentY + lineHeight)
+        }
+    }
+}
+
 // MARK: - Grid Card View
 struct VaultItemGridCard: View {
     let item: VaultItem
     let storageManager: VaultStorageManager
+    let onDelete: () -> Void
+    let onUpdate: (VaultItem) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Thumbnail
-            ZStack {
-                Rectangle()
-                    .fill(Color(uiColor: .tertiarySystemBackground))
-                    .aspectRatio(1, contentMode: .fit)
+        NavigationLink(destination: VaultItemDetailView(item: item, storageManager: storageManager, onDelete: onDelete, onUpdate: onUpdate)) {
+            VStack(alignment: .leading, spacing: 8) {
+                // Thumbnail
+                ZStack {
+                    Rectangle()
+                        .fill(Color(uiColor: .tertiarySystemBackground))
+                        .aspectRatio(1, contentMode: .fit)
 
-                if let image = storageManager.loadImage(filename: item.imageName) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .clipped()
-                } else {
-                    Image(systemName: "photo")
-                        .font(.system(size: 40))
-                        .foregroundColor(.secondary)
+                    if let image = storageManager.loadImage(filename: item.imageName) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .clipped()
+                    } else {
+                        Image(systemName: "photo")
+                            .font(.system(size: 40))
+                            .foregroundColor(.secondary)
+                    }
                 }
-            }
-            .cornerRadius(12)
+                .cornerRadius(12)
 
-            // Title
-            Text(item.title)
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .lineLimit(2)
-                .foregroundColor(.primary)
-
-            // Category
-            HStack(spacing: 4) {
-                Image(systemName: "folder.fill")
-                    .font(.caption2)
-                Text(item.category)
-                    .font(.caption)
-            }
-            .foregroundColor(.blue)
-
-            // Date
-            Text(item.createdAt, style: .date)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-        }
-        .padding(8)
-        .background(Color(uiColor: .secondarySystemBackground))
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
-    }
-}
-
-// MARK: - List Row View
-struct VaultItemListRow: View {
-    let item: VaultItem
-    let storageManager: VaultStorageManager
-
-    var body: some View {
-        HStack(spacing: 12) {
-            // Thumbnail
-            ZStack {
-                Rectangle()
-                    .fill(Color(uiColor: .tertiarySystemBackground))
-                    .frame(width: 80, height: 80)
-
-                if let image = storageManager.loadImage(filename: item.imageName) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 80, height: 80)
-                        .clipped()
-                } else {
-                    Image(systemName: "photo")
-                        .font(.system(size: 30))
-                        .foregroundColor(.secondary)
-                }
-            }
-            .cornerRadius(8)
-
-            // Details
-            VStack(alignment: .leading, spacing: 6) {
+                // Title
                 Text(item.title)
-                    .font(.body)
+                    .font(.subheadline)
                     .fontWeight(.medium)
                     .lineLimit(2)
+                    .foregroundColor(.primary)
 
+                // Category
                 HStack(spacing: 4) {
                     Image(systemName: "folder.fill")
                         .font(.caption2)
@@ -1334,38 +1952,99 @@ struct VaultItemListRow: View {
                 }
                 .foregroundColor(.blue)
 
-                // Tags
-                if !item.tags.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(item.tags, id: \.self) { tag in
-                                Text("#\(tag)")
-                                    .font(.caption2)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 3)
-                                    .background(Color.blue.opacity(0.1))
-                                    .foregroundColor(.blue)
-                                    .cornerRadius(6)
-                            }
-                        }
-                    }
-                }
-
+                // Date
                 Text(item.createdAt, style: .date)
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
-
-            Spacer()
-
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            .padding(8)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .cornerRadius(12)
+            .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
         }
-        .padding()
-        .background(Color(uiColor: .secondarySystemBackground))
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - List Row View
+struct VaultItemListRow: View {
+    let item: VaultItem
+    let storageManager: VaultStorageManager
+    let onDelete: () -> Void
+    let onUpdate: (VaultItem) -> Void
+
+    var body: some View {
+        NavigationLink(destination: VaultItemDetailView(item: item, storageManager: storageManager, onDelete: onDelete, onUpdate: onUpdate)) {
+            HStack(spacing: 12) {
+                // Thumbnail
+                ZStack {
+                    Rectangle()
+                        .fill(Color(uiColor: .tertiarySystemBackground))
+                        .frame(width: 80, height: 80)
+
+                    if let image = storageManager.loadImage(filename: item.imageName) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 80, height: 80)
+                            .clipped()
+                    } else {
+                        Image(systemName: "photo")
+                            .font(.system(size: 30))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .cornerRadius(8)
+
+                // Details
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(item.title)
+                        .font(.body)
+                        .fontWeight(.medium)
+                        .lineLimit(2)
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "folder.fill")
+                            .font(.caption2)
+                        Text(item.category)
+                            .font(.caption)
+                    }
+                    .foregroundColor(.blue)
+
+                    // Tags
+                    if !item.tags.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(item.tags, id: \.self) { tag in
+                                    Text("#\(tag)")
+                                        .font(.caption2)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 3)
+                                        .background(Color.blue.opacity(0.1))
+                                        .foregroundColor(.blue)
+                                        .cornerRadius(6)
+                                }
+                            }
+                        }
+                    }
+
+                    Text(item.createdAt, style: .date)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding()
+            .background(Color(uiColor: .secondarySystemBackground))
+            .cornerRadius(12)
+            .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 

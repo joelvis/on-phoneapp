@@ -1,6 +1,6 @@
 //
 //  NotesAppView.swift
-//  On phoneapp
+//  Toolbox
 //
 //  Created by Joel  on 10/18/25.
 //
@@ -84,6 +84,8 @@ struct NotesAppView: View {
                 NoteDetailView(note: note, onDelete: {
                     deleteNote(note)
                     selectedNote = nil
+                }, onUpdate: { updatedNote in
+                    updateNote(updatedNote)
                 })
             }
             .onAppear {
@@ -131,6 +133,13 @@ struct NotesAppView: View {
     private func addNote(_ note: Note) {
         notes.append(note)
         saveNotes()
+    }
+
+    private func updateNote(_ updatedNote: Note) {
+        if let index = notes.firstIndex(where: { $0.id == updatedNote.id }) {
+            notes[index] = updatedNote
+            saveNotes()
+        }
     }
 
     private func deleteNote(_ note: Note) {
@@ -266,8 +275,13 @@ struct NoteDetailView: View {
     @Environment(\.dismiss) var dismiss
     let note: Note
     let onDelete: () -> Void
+    let onUpdate: (Note) -> Void
 
     @State private var showingDeleteConfirmation = false
+    @State private var isEditing = false
+    @State private var editedTitle = ""
+    @State private var editedContent = ""
+    @FocusState private var isTitleFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -276,68 +290,114 @@ struct NoteDetailView: View {
                 Color(uiColor: .systemBackground)
                     .ignoresSafeArea()
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        // Title
-                        Text(note.title)
-                            .font(.title)
+                if isEditing {
+                    // Edit mode
+                    VStack(spacing: 0) {
+                        // Title field
+                        TextField("Title", text: $editedTitle)
+                            .font(.title2)
                             .fontWeight(.bold)
-                            .padding(.horizontal)
-                            .padding(.top)
-
-                        // Date
-                        HStack {
-                            Image(systemName: "calendar")
-                                .font(.caption)
-                            Text(note.createdAt, style: .date)
-                                .font(.caption)
-                            Image(systemName: "clock")
-                                .font(.caption)
-                                .padding(.leading, 8)
-                            Text(note.createdAt, style: .time)
-                                .font(.caption)
-                        }
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal)
+                            .padding()
+                            .focused($isTitleFocused)
 
                         Divider()
+
+                        // Content field
+                        TextEditor(text: $editedContent)
+                            .font(.body)
+                            .padding()
+                            .scrollContentBackground(.hidden)
+                            .background(Color(uiColor: .systemBackground))
+                    }
+                } else {
+                    // View mode
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            // Title
+                            Text(note.title)
+                                .font(.title)
+                                .fontWeight(.bold)
+                                .padding(.horizontal)
+                                .padding(.top)
+
+                            // Date
+                            HStack {
+                                Image(systemName: "calendar")
+                                    .font(.caption)
+                                Text(note.createdAt, style: .date)
+                                    .font(.caption)
+                                Image(systemName: "clock")
+                                    .font(.caption)
+                                    .padding(.leading, 8)
+                                Text(note.createdAt, style: .time)
+                                    .font(.caption)
+                            }
+                            .foregroundColor(.secondary)
                             .padding(.horizontal)
 
-                        // Content
-                        if !note.content.isEmpty {
-                            Text(note.content)
-                                .font(.body)
+                            Divider()
                                 .padding(.horizontal)
-                        } else {
-                            Text("No content")
-                                .font(.body)
-                                .foregroundColor(.secondary)
-                                .italic()
-                                .padding(.horizontal)
-                        }
 
-                        Spacer()
+                            // Content
+                            if !note.content.isEmpty {
+                                Text(note.content)
+                                    .font(.body)
+                                    .padding(.horizontal)
+                            } else {
+                                Text("No content")
+                                    .font(.body)
+                                    .foregroundColor(.secondary)
+                                    .italic()
+                                    .padding(.horizontal)
+                            }
+
+                            Spacer()
+                        }
                     }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: {
-                        dismiss()
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(.secondary)
+                    if isEditing {
+                        Button("Cancel") {
+                            cancelEditing()
+                        }
+                        .foregroundColor(.secondary)
+                    } else {
+                        Button(action: {
+                            dismiss()
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        showingDeleteConfirmation = true
-                    }) {
-                        Image(systemName: "trash")
-                            .foregroundColor(.red)
+                    if isEditing {
+                        Button("Save") {
+                            saveChanges()
+                        }
+                        .fontWeight(.semibold)
+                        .disabled(editedTitle.trimmingCharacters(in: .whitespaces).isEmpty)
+                    } else {
+                        HStack(spacing: 16) {
+                            Button(action: {
+                                startEditing()
+                            }) {
+                                Image(systemName: "pencil")
+                                    .foregroundColor(.orange)
+                            }
+
+                            Button(action: {
+                                showingDeleteConfirmation = true
+                            }) {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.red)
+                            }
+                        }
                     }
                 }
             }
@@ -351,6 +411,31 @@ struct NoteDetailView: View {
                 Text("Are you sure you want to delete this note? This action cannot be undone.")
             }
         }
+    }
+
+    // MARK: - Edit Functions
+    private func startEditing() {
+        editedTitle = note.title
+        editedContent = note.content
+        isEditing = true
+        isTitleFocused = true
+    }
+
+    private func cancelEditing() {
+        isEditing = false
+        editedTitle = ""
+        editedContent = ""
+    }
+
+    private func saveChanges() {
+        let updatedNote = Note(
+            id: note.id,
+            title: editedTitle,
+            content: editedContent,
+            createdAt: note.createdAt
+        )
+        onUpdate(updatedNote)
+        isEditing = false
     }
 }
 
