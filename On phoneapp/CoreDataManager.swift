@@ -1,6 +1,6 @@
 //
 //  CoreDataManager.swift
-//  Toolbox
+//  On phoneapp
 //
 //  Core Data stack and migration manager
 //

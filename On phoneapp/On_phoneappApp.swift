@@ -1,6 +1,6 @@
 //
-//  ToolboxApp.swift
-//  Toolbox
+//  On_phoneappApp.swift
+//  On phoneapp
 //
 //  Created by Joel  on 10/17/25.
 //
@@ -9,12 +9,12 @@ import SwiftUI
 import UserNotifications
 
 @main
-struct ToolboxApp: App {
+struct On_phoneappApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     // Initialize Core Data on app launch
     init() {
-        print("🚀 ToolboxApp: Initializing Core Data...")
+        print("🚀 On_phoneappApp: Initializing Core Data...")
 
         // Initialize persistent container (lazy property will load it)
         _ = CoreDataManager.shared.persistentContainer
@@ -22,7 +22,7 @@ struct ToolboxApp: App {
         // Migrate data from UserDefaults to Core Data (runs once)
         CoreDataManager.shared.migrateDataFromUserDefaults()
 
-        print("✅ ToolboxApp: Core Data initialization complete")
+        print("✅ On_phoneappApp: Core Data initialization complete")
     }
 
     var body: some Scene {

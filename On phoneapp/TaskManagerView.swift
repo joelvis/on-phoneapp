@@ -1,6 +1,6 @@
 //
 //  TaskManagerView.swift
-//  Toolbox
+//  On phoneapp
 //
 //  Created by Joel  on 10/18/25.
 //
@@ -8,6 +8,7 @@
 import SwiftUI
 import UserNotifications
 import Combine
+import CoreData
 
 // MARK: - Task Model
 struct Task: Identifiable, Codable {

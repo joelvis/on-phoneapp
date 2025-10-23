@@ -1,6 +1,6 @@
 //
 //  HomeView.swift
-//  Toolbox
+//  On phoneapp
 //
 //  Created by Joel  on 10/18/25.
 //
@@ -46,7 +46,7 @@ struct HomeView: View {
                             )
                         )
 
-                    Text("Toolbox")
+                    Text("On Phone")
                         .font(.system(size: 48, weight: .bold, design: .rounded))
                         .foregroundStyle(
                             LinearGradient(

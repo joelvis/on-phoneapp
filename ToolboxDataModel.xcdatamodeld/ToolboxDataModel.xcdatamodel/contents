@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="24299" systemVersion="25A362" minimumToolsVersion="Automatic" sourceLanguage="Swift" usedWithSwiftData="YES" userDefinedModelVersionIdentifier="">
-    <entity name="NoteEntity" representedClassName="On_phoneapp.NoteEntity" syncable="YES" codeGenerationType="manual">
+    <entity name="NoteEntity" representedClassName="On_phoneapp.NoteEntity" syncable="YES" codeGenerationType="class">
         <attribute name="content" attributeType="String"/>
         <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="title" attributeType="String"/>
     </entity>
-    <entity name="TaskEntity" representedClassName="On_phoneapp.TaskEntity" syncable="YES" codeGenerationType="manual">
+    <entity name="TaskEntity" representedClassName="On_phoneapp.TaskEntity" syncable="YES" codeGenerationType="class">
         <attribute name="category" optional="YES" attributeType="String"/>
         <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="dueDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
@@ -18,7 +18,7 @@
         <attribute name="reminderTime" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="title" attributeType="String"/>
     </entity>
-    <entity name="VaultItemEntity" representedClassName="On_phoneapp.VaultItemEntity" syncable="YES" codeGenerationType="manual">
+    <entity name="VaultItemEntity" representedClassName="On_phoneapp.VaultItemEntity" syncable="YES" codeGenerationType="class">
         <attribute name="category" attributeType="String"/>
         <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="extractedText" optional="YES" attributeType="String"/>

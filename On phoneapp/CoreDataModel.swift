@@ -1,6 +1,6 @@
 //
 //  CoreDataModel.swift
-//  Toolbox
+//  On phoneapp
 //
 //  Programmatic Core Data model setup
 //

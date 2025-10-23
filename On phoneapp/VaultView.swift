@@ -1,6 +1,6 @@
 //
 //  VaultView.swift
-//  Toolbox
+//  On phoneapp
 //
 //  Created by Joel  on 10/18/25.
 //
@@ -14,6 +14,7 @@ import LocalAuthentication
 import Combine
 import CryptoKit
 import Security
+import CoreData
 
 // MARK: - Biometric Authentication Manager
 class BiometricAuthManager: ObservableObject {
@@ -1258,7 +1259,7 @@ struct VaultView: View {
     }
 
     var categories: [String] {
-        var cats = ["All"] + Array(Set(items.map { $0.category })).sorted()
+        let cats = ["All"] + Array(Set(items.map { $0.category })).sorted()
         return cats
     }
 

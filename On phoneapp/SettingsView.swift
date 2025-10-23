@@ -1,6 +1,6 @@
 //
 //  SettingsView.swift
-//  Toolbox
+//  On phoneapp
 //
 //  Created by Joel  on 10/18/25.
 //

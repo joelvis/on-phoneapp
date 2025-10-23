@@ -1,105 +1,208 @@
-# Joel's App
+# On Phone App
 
-A modern, modular iOS app built with SwiftUI featuring a home screen and tab-based mini-app architecture.
+**A comprehensive iOS/macOS productivity toolkit built with SwiftUI**
+
+[![Xcode](https://img.shields.io/badge/Xcode-26.0.1-blue.svg)](https://developer.apple.com/xcode/)
+[![Swift](https://img.shields.io/badge/Swift-5.0+-orange.svg)](https://swift.org/)
+[![Platform](https://img.shields.io/badge/Platform-iOS%2026%20|%20macOS%2026%20|%20visionOS%2026-lightgrey.svg)](https://developer.apple.com/)
+
+---
+
+## ⚠️ Important Note
+
+**This project requires Xcode 26.0.1 or later** (currently in beta/preview). It will not build with earlier versions of Xcode.
+
+---
 
 ## Features
 
-### Architecture
-- **Home Screen**: Welcoming home screen with time display and quick access to all apps
-- **Modular Design**: Each mini-app is a self-contained view that can be easily extended
-- **Tab-Based Navigation**: Clean bottom tab bar with 5 tabs (Home + 4 mini-apps)
-- **Extensible**: Easy to add new mini-apps by creating new views and adding them to the TabView
+### 📝 Notes
+- Create, edit, and organize notes
+- Rich text support
+- Core Data persistence
+- Search functionality
 
-### Tabs
+### ✅ Tasks
+- Task management with priorities (Low, Medium, High)
+- Due dates and reminders
+- Categories and filtering
+- Local notifications
+- Core Data persistence
 
-#### 1. Home (Main Screen)
-- Welcome message and live clock
-- Beautiful gradient background
-- Quick access cards to all mini-apps
-- Real-time date and time display
+### 🔐 Vault
+- Secure document storage with encryption
+- Biometric authentication (Face ID/Touch ID)
+- PIN code backup authentication
+- Document scanning
+- Photo encryption with per-file keys
+- OCR text extraction for searchability
+- Core Data persistence
 
-#### 2. Notes App (Fully Functional)
-- Create, view, and delete notes
-- Clean card-based UI
-- Persistent storage using @AppStorage
-- Beautiful empty state
-- Vintage Apple-style X button for dismissing views
+### ⚙️ Settings
+- Notification preferences
+- Task defaults
+- Theme selection
+- Data management
 
-#### 3-5. Placeholder Apps
-- Ready-to-implement blank canvases
-- Each has its own dedicated view
-- Simply replace the placeholder content with your desired functionality
+---
 
-## How to Build
+## Requirements
 
-1. Open `On phoneapp.xcodeproj` in Xcode
-2. Select your target device (simulator or physical device)
-3. Press Cmd+R to build and run
+- **Xcode:** 26.0.1 or later
+- **macOS:** Latest version with Xcode support
+- **Deployment:** iOS 26.0+, macOS 26.0+, visionOS 26.0+
+
+---
+
+## Getting Started
+
+### Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/On-phoneapp.git
+cd "On phoneapp"
+```
+
+2. Open the project:
+```bash
+open "On phoneapp.xcodeproj"
+```
+
+3. Select your target device/simulator
+
+4. Build and run (Cmd + R)
+
+### First Build
+
+If you encounter issues on first build:
+```bash
+./clean_and_open.sh
+```
+
+Or manually clean:
+```bash
+rm -rf ~/Library/Developer/Xcode/DerivedData/*
+```
+
+---
 
 ## Project Structure
 
 ```
 On phoneapp/
-├── ContentView.swift           # Main tab view container
-├── HomeView.swift              # Home screen with welcome and quick access
-├── NotesAppView.swift          # Full-featured notes app
-├── PlaceholderAppView.swift    # Template for new mini-apps
-└── On_phoneappApp.swift        # App entry point
+├── On phoneapp/
+│   ├── On_phoneappApp.swift          # Main app entry point
+│   ├── ContentView.swift             # Tab bar navigation
+│   ├── HomeView.swift                # Home screen
+│   ├── NotesAppView.swift            # Notes feature
+│   ├── TaskManagerView.swift         # Task manager
+│   ├── VaultView.swift               # Secure vault
+│   ├── SettingsView.swift            # Settings
+│   ├── CoreDataManager.swift         # Core Data stack
+│   └── CoreDataExtensions.swift      # Entity extensions
+├── ToolboxDataModel.xcdatamodeld/   # Core Data model
+└── README.md                         # This file
 ```
 
-## Adding New Mini Apps
+### Technologies
 
-To add a new mini-app:
+- **SwiftUI** - Modern, declarative UI
+- **Core Data** - Local persistence
+- **LocalAuthentication** - Biometric security
+- **VisionKit** - Document scanning
+- **CryptoKit** - Encryption
+- **UserNotifications** - Task reminders
 
-1. Create a new SwiftUI View file (e.g., `MyNewAppView.swift`)
-2. Design your app's functionality
-3. Add it to the TabView in `ContentView.swift`:
+---
 
-```swift
-MiniAppContainer {
-    MyNewAppView()
-}
-.tabItem {
-    Image(systemName: "your.icon.name")
-    Text("My App")
-}
-.tag(4) // Increment the tag number
+## Documentation
+
+- [`PROJECT_STATUS.md`](PROJECT_STATUS.md) - Current project status and configuration
+- [`XCODE_CRASH_FIX.md`](XCODE_CRASH_FIX.md) - Troubleshooting guide
+- [`CORE_DATA_SETUP.md`](CORE_DATA_SETUP.md) - Core Data configuration
+- [`VAULT_SETUP.md`](VAULT_SETUP.md) - Vault security implementation
+
+---
+
+## Recent Updates
+
+**October 23, 2025:**
+- ✅ Fixed Xcode 26 compatibility issues
+- ✅ Updated Core Data code generation
+- ✅ Resolved build errors
+- ✅ Added comprehensive documentation
+- ✅ Project builds successfully
+
+See [`PROJECT_STATUS.md`](PROJECT_STATUS.md) for detailed technical information.
+
+---
+
+## Building the Project
+
+### Quick Start
+```bash
+# Open the project
+open "On phoneapp.xcodeproj"
+
+# In Xcode:
+# 1. Select simulator/device
+# 2. Press Cmd + B to build
+# 3. Press Cmd + R to run
 ```
 
-## Design Philosophy
+### Troubleshooting
 
-- **Apple-Style UI**: Uses native iOS components and design patterns
-- **Modern & Clean**: Follows iOS design guidelines
-- **Full-Screen Mini Apps**: Each app takes up the entire screen
-- **Consistent Navigation**: All views use vintage Apple-style X buttons for dismissal
-- **Persistent Data**: Notes are saved automatically using @AppStorage
+If Xcode crashes:
+```bash
+./clean_and_open.sh
+```
 
-## Technologies
+If build fails:
+1. Clean Build Folder (Shift + Cmd + K)
+2. Rebuild (Cmd + B)
 
-- SwiftUI
-- iOS 17+
-- @AppStorage for data persistence
-- NavigationStack for navigation
-- SF Symbols for icons
+---
 
-## Notes App Features
+## Core Data Model
 
-- ✅ Create notes with title and content
-- ✅ View note details in full screen
-- ✅ Delete notes with X button
-- ✅ Automatic date tracking
-- ✅ Beautiful empty state
-- ✅ Persistent storage (survives app restarts)
-- ✅ Card-based layout
+The app uses Core Data for persistence with three main entities:
 
-## Future Enhancements
+- **NoteEntity** - Notes storage
+- **TaskEntity** - Task management
+- **VaultItemEntity** - Secure document storage
 
-You can easily replace the placeholder apps (App 2, App 3, App 4) with:
-- Calculator
-- Todo List
-- Voice Recorder
-- Photo Gallery
-- Weather App
-- Timer/Stopwatch
-- Or any other functionality you need!
+Code generation is automatic with custom extensions in `CoreDataExtensions.swift`.
 
+---
+
+## Security
+
+### Vault Features:
+- AES-256 encryption with per-file keys
+- Keys stored in iOS Keychain
+- Biometric authentication (Face ID/Touch ID)
+- PIN code fallback
+- File protection (`.complete` level)
+
+---
+
+## Contributing
+
+This is a personal project, but suggestions and feedback are welcome!
+
+---
+
+## License
+
+[Add your license here]
+
+---
+
+## Author
+
+Joel
+
+---
+
+**Built with ❤️ using SwiftUI and Core Data**

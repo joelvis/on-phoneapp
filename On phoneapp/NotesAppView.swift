@@ -1,11 +1,12 @@
 //
 //  NotesAppView.swift
-//  Toolbox
+//  On phoneapp
 //
 //  Created by Joel  on 10/18/25.
 //
 
 import SwiftUI
+import CoreData
 
 // MARK: - Note Model
 struct Note: Identifiable, Codable {
