@@ -489,6 +489,11 @@ struct ImagePickerView: UIViewControllerRepresentable {
 }
 
 // MARK: - Vault Item Model
+enum DocumentType: String, Codable {
+    case pdf = "pdf"
+    case image = "image"
+}
+
 struct VaultItem: Identifiable, Codable {
     var id: UUID
     var title: String
@@ -499,8 +504,9 @@ struct VaultItem: Identifiable, Codable {
     var tags: [String]
     var notes: String?
     var extractedText: String? // OCR extracted text for search
+    var documentType: DocumentType // Type of document (PDF or image)
 
-    init(id: UUID = UUID(), title: String, category: String, imageName: String, thumbnailName: String? = nil, createdAt: Date = Date(), tags: [String] = [], notes: String? = nil, extractedText: String? = nil) {
+    init(id: UUID = UUID(), title: String, category: String, imageName: String, thumbnailName: String? = nil, createdAt: Date = Date(), tags: [String] = [], notes: String? = nil, extractedText: String? = nil, documentType: DocumentType = .image) {
         self.id = id
         self.title = title
         self.category = category
@@ -510,6 +516,7 @@ struct VaultItem: Identifiable, Codable {
         self.tags = tags
         self.notes = notes
         self.extractedText = extractedText
+        self.documentType = documentType
     }
 }
 
@@ -805,9 +812,46 @@ class VaultStorageManager {
             return false
         }
 
-        // Encrypt the image data with a unique per-file key
-        guard let encryptedData = encryptionManager.encrypt(imageData, forFile: filename) else {
-            print("❌ VaultStorageManager: Failed to encrypt image data for \(filename)")
+        return saveData(imageData, filename: filename)
+    }
+
+    // Save PDF with per-file encryption and NSFileProtectionComplete
+    func savePDF(_ pdfData: Data, filename: String) -> Bool {
+        return saveData(pdfData, filename: filename)
+    }
+
+    // Create PDF from images and save
+    func createAndSavePDF(from images: [UIImage], filename: String) -> Bool {
+        guard let pdfData = createPDFData(from: images) else {
+            print("❌ VaultStorageManager: Failed to create PDF from images")
+            return false
+        }
+
+        return savePDF(pdfData, filename: filename)
+    }
+
+    // Create PDF data from images
+    private func createPDFData(from images: [UIImage]) -> Data? {
+        let pdfData = NSMutableData()
+
+        UIGraphicsBeginPDFContextToData(pdfData, .zero, nil)
+
+        for image in images {
+            let pageRect = CGRect(x: 0, y: 0, width: image.size.width, height: image.size.height)
+            UIGraphicsBeginPDFPageWithInfo(pageRect, nil)
+            image.draw(in: pageRect)
+        }
+
+        UIGraphicsEndPDFContext()
+
+        return pdfData as Data
+    }
+
+    // Generic save method for both images and PDFs
+    private func saveData(_ data: Data, filename: String) -> Bool {
+        // Encrypt the data with a unique per-file key
+        guard let encryptedData = encryptionManager.encrypt(data, forFile: filename) else {
+            print("❌ VaultStorageManager: Failed to encrypt data for \(filename)")
             return false
         }
 
@@ -828,7 +872,7 @@ class VaultStorageManager {
             return true
 
         } catch let error as NSError {
-            print("❌ VaultStorageManager: Failed to save image \(filename): \(error.localizedDescription)")
+            print("❌ VaultStorageManager: Failed to save file \(filename): \(error.localizedDescription)")
 
             // Clean up: delete the file if it was partially written
             try? FileManager.default.removeItem(at: fileURL)
@@ -842,6 +886,63 @@ class VaultStorageManager {
 
     // Load and decrypt image using per-file key
     func loadImage(filename: String) -> UIImage? {
+        guard let data = loadData(filename: filename) else {
+            return nil
+        }
+
+        // Convert decrypted data to UIImage
+        guard let image = UIImage(data: data) else {
+            print("❌ VaultStorageManager: Failed to create image from decrypted data for \(filename)")
+            return nil
+        }
+
+        return image
+    }
+
+    // Load and decrypt PDF data using per-file key
+    func loadPDFData(filename: String) -> Data? {
+        return loadData(filename: filename)
+    }
+    
+    // Load thumbnail for item (handles both images and PDFs)
+    func loadThumbnail(for item: VaultItem) -> UIImage? {
+        if item.documentType == .pdf {
+            // For PDFs, render the first page as a thumbnail
+            return renderPDFThumbnail(filename: item.imageName)
+        } else {
+            // For images, load directly
+            return loadImage(filename: item.imageName)
+        }
+    }
+    
+    // Render first page of PDF as thumbnail
+    func renderPDFThumbnail(filename: String) -> UIImage? {
+        guard let pdfData = loadPDFData(filename: filename),
+              let dataProvider = CGDataProvider(data: pdfData as CFData),
+              let pdfDocument = CGPDFDocument(dataProvider),
+              let pdfPage = pdfDocument.page(at: 1) else {
+            print("❌ VaultStorageManager: Failed to load PDF for thumbnail: \(filename)")
+            return nil
+        }
+        
+        let pageRect = pdfPage.getBoxRect(.mediaBox)
+        let thumbnailSize = CGSize(width: 300, height: 300 * (pageRect.height / pageRect.width))
+        
+        let renderer = UIGraphicsImageRenderer(size: thumbnailSize)
+        let thumbnail = renderer.image { ctx in
+            UIColor.white.set()
+            ctx.fill(CGRect(origin: .zero, size: thumbnailSize))
+            
+            ctx.cgContext.translateBy(x: 0, y: thumbnailSize.height)
+            ctx.cgContext.scaleBy(x: thumbnailSize.width / pageRect.width, y: -thumbnailSize.height / pageRect.height)
+            ctx.cgContext.drawPDFPage(pdfPage)
+        }
+        
+        return thumbnail
+    }
+
+    // Generic load method for both images and PDFs
+    private func loadData(filename: String) -> Data? {
         let fileURL = getDocumentsDirectory().appendingPathComponent(filename)
 
         // Check if file is accessible (device must be unlocked due to FileProtectionComplete)
@@ -860,13 +961,7 @@ class VaultStorageManager {
                 return nil
             }
 
-            // Convert decrypted data to UIImage
-            guard let image = UIImage(data: decryptedData) else {
-                print("❌ VaultStorageManager: Failed to create image from decrypted data for \(filename)")
-                return nil
-            }
-
-            return image
+            return decryptedData
 
         } catch let error as NSError {
             // Handle specific error when file is protected and device is locked
@@ -920,12 +1015,14 @@ struct AddVaultItemView: View {
     @State private var showingPhotoLibrary = false
     @FocusState private var isTextFieldFocused: Bool
 
-    let onSave: (UIImage, String, String, [String], String?) -> Void
+    let onSave: ([UIImage], String, String, [String], String?, DocumentType) -> Void
     let initialScannedImages: [UIImage]?
+    let documentType: DocumentType
 
-    init(onSave: @escaping (UIImage, String, String, [String], String?) -> Void, scannedImages: [UIImage]? = nil) {
+    init(onSave: @escaping ([UIImage], String, String, [String], String?, DocumentType) -> Void, scannedImages: [UIImage]? = nil, documentType: DocumentType = .image) {
         self.onSave = onSave
         self.initialScannedImages = scannedImages
+        self.documentType = documentType
     }
 
     // Predefined categories
@@ -1216,23 +1313,31 @@ struct AddVaultItemView: View {
     }
 
     private func saveItem() {
-        // Use the currently displayed image (either selected or from scanned pages)
-        guard let image = displayImage else { return }
-
         let tagArray = tags.split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
 
         let notesText = notes.trimmingCharacters(in: .whitespaces)
 
-        // Add page info to notes if multiple pages
+        // Determine images to save
+        var imagesToSave: [UIImage] = []
         var finalNotes = notesText
-        if hasMultiplePages {
-            let pageInfo = "Scanned document with \(scannedImages.count) pages. Showing page \(currentImageIndex + 1)."
-            finalNotes = notesText.isEmpty ? pageInfo : "\(pageInfo)\n\n\(notesText)"
+
+        if !scannedImages.isEmpty {
+            // Use all scanned images for PDF creation
+            imagesToSave = scannedImages
+            if scannedImages.count > 1 {
+                let pageInfo = "Scanned document with \(scannedImages.count) pages."
+                finalNotes = notesText.isEmpty ? pageInfo : "\(pageInfo)\n\n\(notesText)"
+            }
+        } else if let image = selectedImage {
+            // Use selected image
+            imagesToSave = [image]
+        } else {
+            return
         }
 
-        onSave(image, itemTitle, category, tagArray, finalNotes.isEmpty ? nil : finalNotes)
+        onSave(imagesToSave, itemTitle, category, tagArray, finalNotes.isEmpty ? nil : finalNotes, documentType)
         dismiss()
     }
 }
@@ -1413,17 +1518,17 @@ struct VaultView: View {
                 Button("Cancel", role: .cancel) { }
             }
             .sheet(isPresented: $showingImagePicker) {
-                AddVaultItemView(onSave: { image, title, category, tags, notes in
-                    addVaultItem(image: image, title: title, category: category, tags: tags, notes: notes)
-                })
+                AddVaultItemView(onSave: { images, title, category, tags, notes, docType in
+                    addVaultItem(images: images, title: title, category: category, tags: tags, notes: notes, documentType: docType)
+                }, documentType: .image)
             }
             .sheet(isPresented: $showingDocumentScanner) {
                 DocumentScannerView(scannedImages: $scannedImages)
             }
             .sheet(isPresented: $showingAddFromScan) {
-                AddVaultItemView(onSave: { image, title, category, tags, notes in
-                    addVaultItem(image: image, title: title, category: category, tags: tags, notes: notes)
-                }, scannedImages: scannedImages)
+                AddVaultItemView(onSave: { images, title, category, tags, notes, docType in
+                    addVaultItem(images: images, title: title, category: category, tags: tags, notes: notes, documentType: docType)
+                }, scannedImages: scannedImages, documentType: .pdf)
             }
             .onChange(of: scannedImages) { oldValue, newValue in
                 if !newValue.isEmpty && newValue != oldValue {
@@ -1539,18 +1644,33 @@ struct VaultView: View {
         items = storageManager.loadItems()
     }
 
-    private func addVaultItem(image: UIImage, title: String, category: String, tags: [String], notes: String?) {
-        // Generate unique filename
-        let filename = "\(UUID().uuidString).jpg"
-
-        // Save encrypted image to documents directory
-        guard storageManager.saveImage(image, filename: filename) else {
-            print("Error saving encrypted image")
+    private func addVaultItem(images: [UIImage], title: String, category: String, tags: [String], notes: String?, documentType: DocumentType) {
+        guard !images.isEmpty else {
+            print("Error: No images provided")
             return
         }
 
-        // Perform OCR on the image
-        storageManager.performOCR(on: image) { extractedText in
+        // Generate unique filename based on document type
+        let fileExtension = documentType == .pdf ? "pdf" : "jpg"
+        let filename = "\(UUID().uuidString).\(fileExtension)"
+
+        // Save based on document type
+        let saveSuccess: Bool
+        if documentType == .pdf {
+            // Create and save PDF from images
+            saveSuccess = storageManager.createAndSavePDF(from: images, filename: filename)
+        } else {
+            // Save single image
+            saveSuccess = storageManager.saveImage(images[0], filename: filename)
+        }
+
+        guard saveSuccess else {
+            print("Error saving encrypted file")
+            return
+        }
+
+        // Perform OCR on the first image
+        storageManager.performOCR(on: images[0]) { extractedText in
             DispatchQueue.main.async {
                 // Create vault item with OCR text
                 let item = VaultItem(
@@ -1559,7 +1679,8 @@ struct VaultView: View {
                     imageName: filename,
                     tags: tags,
                     notes: notes,
-                    extractedText: extractedText
+                    extractedText: extractedText,
+                    documentType: documentType
                 )
 
                 // Add to items array and save to Core Data
@@ -1625,6 +1746,248 @@ struct CategoryPill: View {
     }
 }
 
+// MARK: - PDF Preview View
+struct PDFPreviewView: View {
+    let item: VaultItem
+    let storageManager: VaultStorageManager
+    @Binding var currentPage: Int
+    @Binding var totalPages: Int
+    let onViewFullPDF: () -> Void
+    
+    @State private var pdfDocument: CGPDFDocument?
+    @State private var renderedImage: UIImage?
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            ZStack {
+                if let image = renderedImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .cornerRadius(12)
+                        .shadow(radius: 5)
+                } else {
+                    Rectangle()
+                        .fill(Color(uiColor: .tertiarySystemBackground))
+                        .frame(height: 300)
+                        .cornerRadius(12)
+                        .overlay(
+                            ProgressView()
+                        )
+                }
+                
+                // PDF badge
+                VStack {
+                    HStack {
+                        Spacer()
+                        Label("PDF", systemImage: "doc.fill")
+                            .font(.caption)
+                            .padding(8)
+                            .background(Color.red.opacity(0.9))
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                            .padding(8)
+                    }
+                    Spacer()
+                }
+            }
+            
+            // Page navigation for multi-page PDFs
+            if totalPages > 1 {
+                HStack(spacing: 16) {
+                    Button(action: {
+                        if currentPage > 1 {
+                            currentPage -= 1
+                            renderCurrentPage()
+                        }
+                    }) {
+                        Image(systemName: "chevron.left.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(currentPage > 1 ? .blue : .gray)
+                    }
+                    .disabled(currentPage <= 1)
+                    
+                    VStack(spacing: 4) {
+                        Text("Page \(currentPage) of \(totalPages)")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        
+                        Button(action: onViewFullPDF) {
+                            Text("View All Pages")
+                                .font(.caption)
+                                .foregroundColor(.blue)
+                        }
+                    }
+                    
+                    Button(action: {
+                        if currentPage < totalPages {
+                            currentPage += 1
+                            renderCurrentPage()
+                        }
+                    }) {
+                        Image(systemName: "chevron.right.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(currentPage < totalPages ? .blue : .gray)
+                    }
+                    .disabled(currentPage >= totalPages)
+                }
+                .padding(.horizontal)
+            }
+        }
+        .onAppear {
+            loadPDF()
+        }
+    }
+    
+    private func loadPDF() {
+        guard let pdfData = storageManager.loadPDFData(filename: item.imageName),
+              let dataProvider = CGDataProvider(data: pdfData as CFData),
+              let document = CGPDFDocument(dataProvider) else {
+            print("❌ Failed to load PDF document")
+            return
+        }
+        
+        pdfDocument = document
+        totalPages = document.numberOfPages
+        renderCurrentPage()
+    }
+    
+    private func renderCurrentPage() {
+        guard let document = pdfDocument,
+              currentPage >= 1 && currentPage <= document.numberOfPages,
+              let page = document.page(at: currentPage) else {
+            return
+        }
+        
+        let pageRect = page.getBoxRect(.mediaBox)
+        let renderer = UIGraphicsImageRenderer(size: pageRect.size)
+        let image = renderer.image { ctx in
+            UIColor.white.set()
+            ctx.fill(pageRect)
+            ctx.cgContext.translateBy(x: 0, y: pageRect.size.height)
+            ctx.cgContext.scaleBy(x: 1.0, y: -1.0)
+            ctx.cgContext.drawPDFPage(page)
+        }
+        
+        renderedImage = image
+    }
+}
+
+// MARK: - Full PDF Viewer
+struct PDFViewerView: View {
+    let item: VaultItem
+    let storageManager: VaultStorageManager
+    
+    @Environment(\.dismiss) var dismiss
+    @State private var pdfDocument: CGPDFDocument?
+    @State private var renderedPages: [UIImage] = []
+    @State private var currentPage: Int = 0
+    @State private var isLoading = true
+    
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(uiColor: .systemBackground)
+                    .ignoresSafeArea()
+                
+                if isLoading {
+                    VStack(spacing: 20) {
+                        ProgressView()
+                        Text("Loading PDF...")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                } else if !renderedPages.isEmpty {
+                    TabView(selection: $currentPage) {
+                        ForEach(0..<renderedPages.count, id: \.self) { index in
+                            ScrollView([.horizontal, .vertical]) {
+                                Image(uiImage: renderedPages[index])
+                                    .resizable()
+                                    .scaledToFit()
+                                    .padding()
+                            }
+                            .tag(index)
+                        }
+                    }
+                    .tabViewStyle(.page(indexDisplayMode: .always))
+                    .indexViewStyle(.page(backgroundDisplayMode: .always))
+                } else {
+                    VStack(spacing: 20) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 60))
+                            .foregroundColor(.secondary)
+                        Text("Failed to load PDF")
+                            .font(.headline)
+                        Text("The PDF document could not be displayed")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .navigationTitle(item.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if !renderedPages.isEmpty {
+                        Text("Page \(currentPage + 1) of \(renderedPages.count)")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                loadAndRenderPDF()
+            }
+        }
+    }
+    
+    private func loadAndRenderPDF() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let pdfData = storageManager.loadPDFData(filename: item.imageName),
+                  let dataProvider = CGDataProvider(data: pdfData as CFData),
+                  let document = CGPDFDocument(dataProvider) else {
+                DispatchQueue.main.async {
+                    isLoading = false
+                }
+                return
+            }
+            
+            var pages: [UIImage] = []
+            for pageNum in 1...document.numberOfPages {
+                if let page = document.page(at: pageNum) {
+                    let pageRect = page.getBoxRect(.mediaBox)
+                    let renderer = UIGraphicsImageRenderer(size: pageRect.size)
+                    let image = renderer.image { ctx in
+                        UIColor.white.set()
+                        ctx.fill(pageRect)
+                        ctx.cgContext.translateBy(x: 0, y: pageRect.size.height)
+                        ctx.cgContext.scaleBy(x: 1.0, y: -1.0)
+                        ctx.cgContext.drawPDFPage(page)
+                    }
+                    pages.append(image)
+                }
+            }
+            
+            DispatchQueue.main.async {
+                self.renderedPages = pages
+                self.isLoading = false
+            }
+        }
+    }
+}
+
+// MARK: - Shareable Item for Activity View
+struct ShareableItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
 // MARK: - Vault Item Detail View
 struct VaultItemDetailView: View {
     let item: VaultItem
@@ -1636,31 +1999,47 @@ struct VaultItemDetailView: View {
     @State private var showingShareSheet = false
     @State private var showingDeleteConfirmation = false
     @State private var showingEditSheet = false
-    @State private var imageToShare: UIImage?
+    @State private var showingPDFViewer = false
+    @State private var shareItem: ShareableItem?
+    @State private var pdfPageCount: Int = 1
+    @State private var currentPDFPage: Int = 1
+    @State private var showShareError = false
+    @State private var shareErrorMessage = ""
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // Full Image
-                if let image = storageManager.loadImage(filename: item.imageName) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .cornerRadius(12)
-                        .shadow(radius: 5)
-                        .onAppear {
-                            imageToShare = image
+                // Full Image or PDF Preview
+                if item.documentType == .pdf {
+                    // PDF preview - show first page with page navigation
+                    PDFPreviewView(
+                        item: item,
+                        storageManager: storageManager,
+                        currentPage: $currentPDFPage,
+                        totalPages: $pdfPageCount,
+                        onViewFullPDF: {
+                            showingPDFViewer = true
                         }
+                    )
                 } else {
-                    ZStack {
-                        Rectangle()
-                            .fill(Color(uiColor: .tertiarySystemBackground))
-                            .frame(height: 300)
+                    // Image
+                    if let image = storageManager.loadImage(filename: item.imageName) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
                             .cornerRadius(12)
+                            .shadow(radius: 5)
+                    } else {
+                        ZStack {
+                            Rectangle()
+                                .fill(Color(uiColor: .tertiarySystemBackground))
+                                .frame(height: 300)
+                                .cornerRadius(12)
 
-                        Image(systemName: "photo")
-                            .font(.system(size: 60))
-                            .foregroundColor(.secondary)
+                            Image(systemName: "photo")
+                                .font(.system(size: 60))
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
 
@@ -1823,23 +2202,31 @@ struct VaultItemDetailView: View {
 
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: {
-                    showingShareSheet = true
+                    prepareForSharing()
                 }) {
                     Image(systemName: "square.and.arrow.up")
                         .font(.body)
                 }
             }
         }
-        .sheet(isPresented: $showingShareSheet) {
-            if let image = imageToShare {
-                ShareSheet(items: [image])
-            }
+        .sheet(item: $shareItem) { shareable in
+            ShareSheet(items: [shareable.url])
         }
         .sheet(isPresented: $showingEditSheet) {
             EditVaultItemView(item: item, onSave: { updatedItem in
                 onUpdate(updatedItem)
                 showingEditSheet = false
             })
+        }
+        .sheet(isPresented: $showingPDFViewer) {
+            if item.documentType == .pdf {
+                PDFViewerView(item: item, storageManager: storageManager)
+            }
+        }
+        .alert("Share Error", isPresented: $showShareError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(shareErrorMessage)
         }
         .alert("Delete Document", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
@@ -1849,6 +2236,76 @@ struct VaultItemDetailView: View {
             }
         } message: {
             Text("Are you sure you want to delete '\(item.title)'? This action cannot be undone.")
+        }
+    }
+    
+    private func prepareForSharing() {
+        print("🔄 prepareForSharing called for: \(item.title), type: \(item.documentType)")
+        
+        if item.documentType == .pdf {
+            // For PDFs, create a temporary file
+            guard let pdfData = storageManager.loadPDFData(filename: item.imageName) else {
+                print("❌ Failed to load PDF data for: \(item.imageName)")
+                shareErrorMessage = "Could not load PDF document. Please try again."
+                showShareError = true
+                return
+            }
+            
+            print("✅ Loaded PDF data, size: \(pdfData.count) bytes")
+            
+            // Clean filename for export
+            let cleanTitle = item.title.replacingOccurrences(of: "/", with: "-")
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("\(cleanTitle).pdf")
+            
+            do {
+                // Write PDF data to temp file
+                try pdfData.write(to: tempURL, options: .atomic)
+                print("✅ Created temp PDF file at: \(tempURL.path)")
+                
+                // Present share sheet
+                shareItem = ShareableItem(url: tempURL)
+                print("✅ Share sheet should present now")
+            } catch {
+                print("❌ Failed to create temporary PDF file: \(error)")
+                shareErrorMessage = "Could not prepare PDF for sharing: \(error.localizedDescription)"
+                showShareError = true
+            }
+        } else {
+            // For images, convert to temporary file as well
+            guard let image = storageManager.loadImage(filename: item.imageName) else {
+                print("❌ Failed to load image for: \(item.imageName)")
+                shareErrorMessage = "Could not load image. Please try again."
+                showShareError = true
+                return
+            }
+            
+            guard let imageData = image.jpegData(compressionQuality: 0.9) else {
+                print("❌ Failed to convert image to JPEG")
+                shareErrorMessage = "Could not convert image for sharing."
+                showShareError = true
+                return
+            }
+            
+            print("✅ Loaded image data, size: \(imageData.count) bytes")
+            
+            // Clean filename for export
+            let cleanTitle = item.title.replacingOccurrences(of: "/", with: "-")
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("\(cleanTitle).jpg")
+            
+            do {
+                try imageData.write(to: tempURL, options: .atomic)
+                print("✅ Created temp image file at: \(tempURL.path)")
+                
+                // Present share sheet
+                shareItem = ShareableItem(url: tempURL)
+                print("✅ Share sheet should present now")
+            } catch {
+                print("❌ Failed to create temporary image file: \(error)")
+                shareErrorMessage = "Could not prepare image for sharing: \(error.localizedDescription)"
+                showShareError = true
+            }
         }
     }
 }
@@ -2114,15 +2571,32 @@ struct VaultItemGridCard: View {
                         .fill(Color(uiColor: .tertiarySystemBackground))
                         .aspectRatio(1, contentMode: .fit)
 
-                    if let image = storageManager.loadImage(filename: item.imageName) {
+                    if let image = storageManager.loadThumbnail(for: item) {
                         Image(uiImage: image)
                             .resizable()
                             .scaledToFill()
                             .clipped()
                     } else {
-                        Image(systemName: "photo")
+                        Image(systemName: item.documentType == .pdf ? "doc.fill" : "photo")
                             .font(.system(size: 40))
                             .foregroundColor(.secondary)
+                    }
+                    
+                    // PDF badge for PDFs
+                    if item.documentType == .pdf {
+                        VStack {
+                            HStack {
+                                Spacer()
+                                Image(systemName: "doc.fill")
+                                    .font(.caption2)
+                                    .padding(4)
+                                    .background(Color.red.opacity(0.9))
+                                    .foregroundColor(.white)
+                                    .cornerRadius(4)
+                                    .padding(4)
+                            }
+                            Spacer()
+                        }
                     }
                 }
                 .cornerRadius(12)
@@ -2173,16 +2647,34 @@ struct VaultItemListRow: View {
                         .fill(Color(uiColor: .tertiarySystemBackground))
                         .frame(width: 80, height: 80)
 
-                    if let image = storageManager.loadImage(filename: item.imageName) {
+                    if let image = storageManager.loadThumbnail(for: item) {
                         Image(uiImage: image)
                             .resizable()
                             .scaledToFill()
                             .frame(width: 80, height: 80)
                             .clipped()
                     } else {
-                        Image(systemName: "photo")
+                        Image(systemName: item.documentType == .pdf ? "doc.fill" : "photo")
                             .font(.system(size: 30))
                             .foregroundColor(.secondary)
+                    }
+                    
+                    // PDF badge for PDFs
+                    if item.documentType == .pdf {
+                        VStack {
+                            HStack {
+                                Spacer()
+                                Image(systemName: "doc.fill")
+                                    .font(.caption2)
+                                    .padding(3)
+                                    .background(Color.red.opacity(0.9))
+                                    .foregroundColor(.white)
+                                    .cornerRadius(3)
+                                    .padding(3)
+                            }
+                            Spacer()
+                        }
+                        .frame(width: 80, height: 80)
                     }
                 }
                 .cornerRadius(8)

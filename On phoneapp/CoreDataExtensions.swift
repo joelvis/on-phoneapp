@@ -23,6 +23,14 @@ extension VaultItemEntity {
     
     // Convert to struct for UI
     func toVaultItem() -> VaultItem {
+        // Parse documentType from string, default to .image if invalid or nil
+        let docType: DocumentType
+        if let typeString = self.documentType {
+            docType = DocumentType(rawValue: typeString) ?? .image
+        } else {
+            docType = .image
+        }
+
         return VaultItem(
             id: self.id!,
             title: self.title!,
@@ -32,10 +40,11 @@ extension VaultItemEntity {
             createdAt: self.createdAt!,
             tags: self.tags,
             notes: self.notes,
-            extractedText: self.extractedText
+            extractedText: self.extractedText,
+            documentType: docType
         )
     }
-    
+
     // Create from struct
     static func from(item: VaultItem, context: NSManagedObjectContext) -> VaultItemEntity {
         let entity = VaultItemEntity(context: context)
@@ -48,9 +57,10 @@ extension VaultItemEntity {
         entity.tags = item.tags
         entity.notes = item.notes
         entity.extractedText = item.extractedText
+        entity.documentType = item.documentType.rawValue
         return entity
     }
-    
+
     // Update from struct
     func update(from item: VaultItem) {
         self.title = item.title
@@ -59,6 +69,7 @@ extension VaultItemEntity {
         self.tags = item.tags
         self.notes = item.notes
         self.extractedText = item.extractedText
+        self.documentType = item.documentType.rawValue
     }
 }
 

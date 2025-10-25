@@ -72,6 +72,7 @@ import CoreData
  │   - tagsData      : Binary     (optional) - JSON encoded [String]        │
  │   - notes         : String     (optional)                                │
  │   - extractedText : String     (optional) - OCR text for search          │
+ │   - documentType  : String     (required, default: "image") - pdf/image  │
  ├─────────────────────────────────────────────────────────────────────────┤
  │ Indexes:                                                                 │
  │   - title (for search optimization)                                      │
@@ -262,9 +263,15 @@ class CoreDataModelBuilder {
         extractedTextAttr.attributeType = .stringAttributeType
         extractedTextAttr.isOptional = true
 
+        let documentTypeAttr = NSAttributeDescription()
+        documentTypeAttr.name = "documentType"
+        documentTypeAttr.attributeType = .stringAttributeType
+        documentTypeAttr.isOptional = false
+        documentTypeAttr.defaultValue = "image"
+
         entity.properties = [
             idAttr, titleAttr, categoryAttr, imageNameAttr, thumbnailNameAttr,
-            createdAtAttr, tagsDataAttr, notesAttr, extractedTextAttr
+            createdAtAttr, tagsDataAttr, notesAttr, extractedTextAttr, documentTypeAttr
         ]
 
         return entity

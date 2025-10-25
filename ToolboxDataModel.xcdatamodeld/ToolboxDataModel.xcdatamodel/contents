@@ -21,6 +21,7 @@
     <entity name="VaultItemEntity" representedClassName="On_phoneapp.VaultItemEntity" syncable="YES" codeGenerationType="class">
         <attribute name="category" attributeType="String"/>
         <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="documentType" attributeType="String" defaultValueString="image"/>
         <attribute name="extractedText" optional="YES" attributeType="String"/>
         <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="imageName" attributeType="String"/>
