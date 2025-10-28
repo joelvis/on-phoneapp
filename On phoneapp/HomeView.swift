@@ -7,16 +7,43 @@
 
 import SwiftUI
 import Combine
+import CoreData
+
+// MARK: - Data Counter
+class DataCounter: ObservableObject {
+    static let shared = DataCounter()
+    
+    @Published var vaultCount = 0
+    @Published var notesCount = 0
+    @Published var tasksCount = 0
+    @Published var totalItems = 0
+    
+    private let context = CoreDataManager.shared.viewContext
+    
+    func refreshCounts() {
+        // Fetch Vault items count
+        let vaultRequest: NSFetchRequest<VaultItemEntity> = NSFetchRequest(entityName: "VaultItemEntity")
+        vaultCount = (try? context.count(for: vaultRequest)) ?? 0
+        
+        // Fetch Notes count
+        let notesRequest: NSFetchRequest<NoteEntity> = NSFetchRequest(entityName: "NoteEntity")
+        notesCount = (try? context.count(for: notesRequest)) ?? 0
+        
+        // Fetch Tasks count
+        let tasksRequest: NSFetchRequest<TaskEntity> = NSFetchRequest(entityName: "TaskEntity")
+        tasksCount = (try? context.count(for: tasksRequest)) ?? 0
+        
+        // Calculate total
+        totalItems = vaultCount + notesCount + tasksCount
+        
+        print("📊 DataCounter: Vault: \(vaultCount), Notes: \(notesCount), Tasks: \(tasksCount), Total: \(totalItems)")
+    }
+}
 
 struct HomeView: View {
     @Binding var selectedTab: Int
     @State private var showContent = false
-    
-    // Mock data for total items count
-    @State private var totalItems = 44
-    @State private var vaultCount = 12
-    @State private var notesCount = 24
-    @State private var tasksCount = 8
+    @StateObject private var dataCounter = DataCounter.shared
     
     init(selectedTab: Binding<Int>) {
         self._selectedTab = selectedTab
@@ -54,7 +81,7 @@ struct HomeView: View {
                 .padding(.bottom, 24)
                 
                 // Stats Card
-                StatsCard(totalItems: totalItems)
+                StatsCard(totalItems: dataCounter.totalItems)
                     .padding(.horizontal, 24)
                     .padding(.bottom, 24)
                     .opacity(showContent ? 1 : 0)
@@ -67,7 +94,7 @@ struct HomeView: View {
                         icon: "lock.fill",
                         title: "Vault",
                         subtitle: "Secure documents",
-                        count: vaultCount,
+                        count: dataCounter.vaultCount,
                         accentColor: Color(red: 0.3, green: 0.5, blue: 1.0),
                         iconBackground: Color(red: 0.15, green: 0.2, blue: 0.35)
                     )
@@ -84,7 +111,7 @@ struct HomeView: View {
                         icon: "doc.text.fill",
                         title: "Notes",
                         subtitle: "Quick thoughts",
-                        count: notesCount,
+                        count: dataCounter.notesCount,
                         accentColor: Color(red: 0.6, green: 0.4, blue: 1.0),
                         iconBackground: Color(red: 0.25, green: 0.15, blue: 0.35)
                     )
@@ -101,7 +128,7 @@ struct HomeView: View {
                         icon: "checkmark.square.fill",
                         title: "Tasks",
                         subtitle: "Stay organized",
-                        count: tasksCount,
+                        count: dataCounter.tasksCount,
                         accentColor: Color(red: 1.0, green: 0.6, blue: 0.2),
                         iconBackground: Color(red: 0.3, green: 0.2, blue: 0.15)
                     )
@@ -171,8 +198,18 @@ struct HomeView: View {
             .ignoresSafeArea()
         )
         .onAppear {
+            // Refresh data counts
+            dataCounter.refreshCounts()
+            
+            // Trigger animations
             withAnimation {
                 showContent = true
+            }
+        }
+        .onChange(of: selectedTab) { oldValue, newValue in
+            // Refresh counts when returning to home tab
+            if newValue == 0 {
+                dataCounter.refreshCounts()
             }
         }
     }
