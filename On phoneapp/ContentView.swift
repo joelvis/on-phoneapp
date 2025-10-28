@@ -35,32 +35,39 @@ struct ContentView: View {
         UITabBar.appearance().layer.shadowOpacity = 0.15
     }
 
+    @State private var selectedTab = 0
+    
     var body: some View {
-        TabView {
-            HomeView()
+        TabView(selection: $selectedTab) {
+            HomeView(selectedTab: $selectedTab)
                 .tabItem {
                     Label("Home", systemImage: "house.fill")
                 }
+                .tag(0)
 
             NotesAppView()
                 .tabItem {
                     Label("Notes", systemImage: "note.text")
                 }
+                .tag(1)
 
             TaskManagerView()
                 .tabItem {
                     Label("Tasks", systemImage: "checklist")
                 }
+                .tag(2)
 
             VaultView()
                 .tabItem {
                     Label("Vault", systemImage: "lock.shield.fill")
                 }
+                .tag(3)
 
             SettingsView()
                 .tabItem {
                     Label("Settings", systemImage: "gear")
                 }
+                .tag(4)
         }
     }
 }

@@ -9,11 +9,16 @@ import SwiftUI
 import Combine
 
 struct HomeView: View {
+    @Binding var selectedTab: Int
     @State private var currentTime = Date()
     @State private var showContent = false
     
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     
+    init(selectedTab: Binding<Int>) {
+        self._selectedTab = selectedTab
+    }
+
     var body: some View {
         ZStack {
             // Premium gradient background
@@ -26,7 +31,7 @@ struct HomeView: View {
                 endPoint: .bottom
             )
             .ignoresSafeArea()
-            
+
             // Subtle ambient glow
             Circle()
                 .fill(
@@ -92,6 +97,11 @@ struct HomeView: View {
                         .opacity(showContent ? 1 : 0)
                         .offset(y: showContent ? 0 : 30)
                         .animation(.spring(response: 0.8, dampingFraction: 0.8).delay(0.7), value: showContent)
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                selectedTab = 3 // Vault tab
+                            }
+                        }
                         
                         QuickActionCard(
                             icon: "note.text",
@@ -103,6 +113,11 @@ struct HomeView: View {
                         .opacity(showContent ? 1 : 0)
                         .offset(y: showContent ? 0 : 30)
                         .animation(.spring(response: 0.8, dampingFraction: 0.8).delay(0.85), value: showContent)
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                selectedTab = 1 // Notes tab
+                            }
+                        }
                         
                         QuickActionCard(
                             icon: "checklist",
@@ -114,6 +129,11 @@ struct HomeView: View {
                         .opacity(showContent ? 1 : 0)
                         .offset(y: showContent ? 0 : 30)
                         .animation(.spring(response: 0.8, dampingFraction: 0.8).delay(1.0), value: showContent)
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                selectedTab = 2 // Tasks tab
+                            }
+                        }
                     }
                     .padding(.horizontal, 24)
                     .padding(.bottom, 40)
@@ -138,7 +158,7 @@ struct QuickActionCard: View {
     let subtitle: String
     let accentColor: Color
     let delay: Double
-    
+
     var body: some View {
         HStack(spacing: 16) {
             // Icon container
@@ -147,7 +167,7 @@ struct QuickActionCard: View {
                     .fill(accentColor.opacity(0.15))
                     .frame(width: 56, height: 56)
                 
-                Image(systemName: icon)
+            Image(systemName: icon)
                     .font(.system(size: 24, weight: .medium))
                     .foregroundColor(accentColor)
             }
@@ -162,9 +182,9 @@ struct QuickActionCard: View {
                     .font(.system(size: 14, weight: .regular, design: .default))
                     .foregroundColor(.white.opacity(0.5))
             }
-            
+
             Spacer()
-            
+
             // Arrow indicator
             Image(systemName: "chevron.right")
                 .font(.system(size: 14, weight: .semibold))
@@ -185,5 +205,5 @@ struct QuickActionCard: View {
 }
 
 #Preview {
-    HomeView()
+    HomeView(selectedTab: .constant(0))
 }
