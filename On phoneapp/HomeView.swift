@@ -2,7 +2,7 @@
 //  HomeView.swift
 //  On phoneapp
 //
-//  Redesigned with Steve Jobs design principles
+//  Redesigned to match Figma design exactly
 //
 
 import SwiftUI
@@ -10,139 +10,166 @@ import Combine
 
 struct HomeView: View {
     @Binding var selectedTab: Int
-    @State private var currentTime = Date()
     @State private var showContent = false
     
-    let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    // Mock data for total items count
+    @State private var totalItems = 44
+    @State private var vaultCount = 12
+    @State private var notesCount = 24
+    @State private var tasksCount = 8
     
     init(selectedTab: Binding<Int>) {
         self._selectedTab = selectedTab
     }
-
+    
     var body: some View {
-        ZStack {
-            // Premium gradient background
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+                // Header Section
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Welcome back")
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundColor(.white.opacity(0.6))
+                        .opacity(showContent ? 1 : 0)
+                        .offset(y: showContent ? 0 : -10)
+                        .animation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.1), value: showContent)
+                    
+                    Text("Toolbox")
+                        .font(.system(size: 48, weight: .bold))
+                        .foregroundColor(.white)
+                        .opacity(showContent ? 1 : 0)
+                        .offset(y: showContent ? 0 : -10)
+                        .animation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.2), value: showContent)
+                    
+                    Text("All your essentials in one place")
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundColor(.white.opacity(0.5))
+                        .opacity(showContent ? 1 : 0)
+                        .offset(y: showContent ? 0 : -10)
+                        .animation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.3), value: showContent)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
+                .padding(.top, 60)
+                .padding(.bottom, 24)
+                
+                // Stats Card
+                StatsCard(totalItems: totalItems)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 24)
+                    .opacity(showContent ? 1 : 0)
+                    .offset(y: showContent ? 0 : 20)
+                    .animation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.4), value: showContent)
+                
+                // Main Feature Cards
+                VStack(spacing: 16) {
+                    FeatureCard(
+                        icon: "lock.fill",
+                        title: "Vault",
+                        subtitle: "Secure documents",
+                        count: vaultCount,
+                        accentColor: Color(red: 0.3, green: 0.5, blue: 1.0),
+                        iconBackground: Color(red: 0.15, green: 0.2, blue: 0.35)
+                    )
+                    .opacity(showContent ? 1 : 0)
+                    .offset(y: showContent ? 0 : 20)
+                    .animation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.5), value: showContent)
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            selectedTab = 3
+                        }
+                    }
+                    
+                    FeatureCard(
+                        icon: "doc.text.fill",
+                        title: "Notes",
+                        subtitle: "Quick thoughts",
+                        count: notesCount,
+                        accentColor: Color(red: 0.6, green: 0.4, blue: 1.0),
+                        iconBackground: Color(red: 0.25, green: 0.15, blue: 0.35)
+                    )
+                    .opacity(showContent ? 1 : 0)
+                    .offset(y: showContent ? 0 : 20)
+                    .animation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.6), value: showContent)
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            selectedTab = 1
+                        }
+                    }
+                    
+                    FeatureCard(
+                        icon: "checkmark.square.fill",
+                        title: "Tasks",
+                        subtitle: "Stay organized",
+                        count: tasksCount,
+                        accentColor: Color(red: 1.0, green: 0.6, blue: 0.2),
+                        iconBackground: Color(red: 0.3, green: 0.2, blue: 0.15)
+                    )
+                    .opacity(showContent ? 1 : 0)
+                    .offset(y: showContent ? 0 : 20)
+                    .animation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.7), value: showContent)
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            selectedTab = 2
+                        }
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 32)
+                
+                // Quick Actions Section
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Quick Actions")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.7))
+                        .padding(.horizontal, 24)
+                        .opacity(showContent ? 1 : 0)
+                        .animation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.8), value: showContent)
+                    
+                    HStack(spacing: 16) {
+                        QuickActionButton(
+                            icon: "plus",
+                            title: "New Note",
+                            action: {
+                                selectedTab = 1
+                            }
+                        )
+                        
+                        QuickActionButton(
+                            icon: "plus",
+                            title: "New Task",
+                            action: {
+                                selectedTab = 2
+                            }
+                        )
+                        
+                        QuickActionButton(
+                            icon: "plus",
+                            title: "Scan\nDocument",
+                            action: {
+                                selectedTab = 3
+                            }
+                        )
+                    }
+                    .padding(.horizontal, 24)
+                    .opacity(showContent ? 1 : 0)
+                    .offset(y: showContent ? 0 : 20)
+                    .animation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.9), value: showContent)
+                }
+                .padding(.bottom, 40)
+            }
+        }
+        .background(
             LinearGradient(
                 gradient: Gradient(colors: [
                     Color(red: 0.05, green: 0.05, blue: 0.08),
-                    Color(red: 0.12, green: 0.12, blue: 0.18)
+                    Color(red: 0.08, green: 0.08, blue: 0.12)
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
             )
             .ignoresSafeArea()
-
-            // Subtle ambient glow
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [
-                            Color.blue.opacity(0.15),
-                            Color.clear
-                        ],
-                        center: .top,
-                        startRadius: 0,
-                        endRadius: 400
-                    )
-                )
-                .frame(width: 600, height: 600)
-                .offset(y: -200)
-                .blur(radius: 40)
-                .opacity(showContent ? 1 : 0)
-                .animation(.easeOut(duration: 2.0), value: showContent)
-            
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 0) {
-                    // Hero section with time
-                    VStack(spacing: 12) {
-                        // App wordmark
-                        Text("On Phone")
-                            .font(.system(size: 28, weight: .medium, design: .default))
-                            .foregroundColor(.white.opacity(0.95))
-                            .tracking(0.5)
-                            .opacity(showContent ? 1 : 0)
-                            .offset(y: showContent ? 0 : -20)
-                            .animation(.spring(response: 0.8, dampingFraction: 0.8).delay(0.1), value: showContent)
-                        
-                        // Live time - Hero element
-                        Text(currentTime, style: .time)
-                            .font(.system(size: 88, weight: .thin, design: .default))
-                            .foregroundColor(.white)
-                            .opacity(showContent ? 1 : 0)
-                            .scaleEffect(showContent ? 1 : 0.8)
-                            .blur(radius: showContent ? 0 : 20)
-                            .animation(.spring(response: 1.0, dampingFraction: 0.75).delay(0.3), value: showContent)
-                        
-                        // Date
-                        Text(currentTime, format: .dateTime.weekday(.wide).month().day())
-                            .font(.system(size: 17, weight: .regular, design: .default))
-                            .foregroundColor(.white.opacity(0.6))
-                            .tracking(0.3)
-                            .opacity(showContent ? 1 : 0)
-                            .offset(y: showContent ? 0 : 20)
-                            .animation(.spring(response: 0.8, dampingFraction: 0.8).delay(0.5), value: showContent)
-                    }
-                    .padding(.top, 80)
-                    .padding(.bottom, 60)
-                    
-                    // Quick actions
-                    VStack(spacing: 16) {
-                        QuickActionCard(
-                            icon: "lock.doc.fill",
-                            title: "Vault",
-                            subtitle: "Secure documents",
-                            accentColor: Color(red: 0.3, green: 0.4, blue: 1.0),
-                            delay: 0.7
-                        )
-                        .opacity(showContent ? 1 : 0)
-                        .offset(y: showContent ? 0 : 30)
-                        .animation(.spring(response: 0.8, dampingFraction: 0.8).delay(0.7), value: showContent)
-                        .onTapGesture {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                selectedTab = 3 // Vault tab
-                            }
-                        }
-                        
-                        QuickActionCard(
-                            icon: "note.text",
-                            title: "Notes",
-                            subtitle: "Quick thoughts",
-                            accentColor: Color(red: 1.0, green: 0.8, blue: 0.0),
-                            delay: 0.85
-                        )
-                        .opacity(showContent ? 1 : 0)
-                        .offset(y: showContent ? 0 : 30)
-                        .animation(.spring(response: 0.8, dampingFraction: 0.8).delay(0.85), value: showContent)
-                        .onTapGesture {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                selectedTab = 1 // Notes tab
-                            }
-                        }
-                        
-                        QuickActionCard(
-                            icon: "checklist",
-                            title: "Tasks",
-                            subtitle: "Stay organized",
-                            accentColor: Color(red: 0.2, green: 0.8, blue: 0.4),
-                            delay: 1.0
-                        )
-                        .opacity(showContent ? 1 : 0)
-                        .offset(y: showContent ? 0 : 30)
-                        .animation(.spring(response: 0.8, dampingFraction: 0.8).delay(1.0), value: showContent)
-                        .onTapGesture {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                selectedTab = 2 // Tasks tab
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 40)
-                }
-            }
-        }
-        .onReceive(timer) { _ in
-            currentTime = Date()
-        }
+        )
         .onAppear {
             withAnimation {
                 showContent = true
@@ -151,56 +178,169 @@ struct HomeView: View {
     }
 }
 
-// MARK: - Quick Action Card
-struct QuickActionCard: View {
+// MARK: - Stats Card
+struct StatsCard: View {
+    let totalItems: Int
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(totalItems)")
+                        .font(.system(size: 56, weight: .bold))
+                        .foregroundColor(.white)
+                    
+                    Text("Total Items")
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundColor(.white.opacity(0.6))
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .trailing, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.shield.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.green)
+                        
+                        Text("Encrypted")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.green)
+                    }
+                    
+                    Text("Secure on device")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(.white.opacity(0.5))
+                }
+            }
+            
+            // Gradient Progress Bar
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    // Background
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.white.opacity(0.1))
+                        .frame(height: 8)
+                    
+                    // Gradient fill (65% progress)
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color(red: 0.3, green: 0.5, blue: 1.0),
+                            Color(red: 0.6, green: 0.4, blue: 1.0),
+                            Color(red: 1.0, green: 0.5, blue: 0.3)
+                        ]),
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .mask(
+                        RoundedRectangle(cornerRadius: 4)
+                            .frame(width: geometry.size.width * 0.65, height: 8)
+                    )
+                }
+            }
+            .frame(height: 8)
+        }
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color(red: 0.12, green: 0.12, blue: 0.16))
+        )
+    }
+}
+
+// MARK: - Feature Card
+struct FeatureCard: View {
     let icon: String
     let title: String
     let subtitle: String
+    let count: Int
     let accentColor: Color
-    let delay: Double
-
+    let iconBackground: Color
+    
     var body: some View {
         HStack(spacing: 16) {
             // Icon container
             ZStack {
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(accentColor.opacity(0.15))
-                    .frame(width: 56, height: 56)
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(iconBackground)
+                    .frame(width: 64, height: 64)
                 
-            Image(systemName: icon)
-                    .font(.system(size: 24, weight: .medium))
+                Image(systemName: icon)
+                    .font(.system(size: 28, weight: .semibold))
                     .foregroundColor(accentColor)
             }
             
             // Text content
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 18, weight: .semibold, design: .default))
-                    .foregroundColor(.white)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundColor(.white)
+                    
+                    // Count badge
+                    Text("\(count)")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(accentColor)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(accentColor.opacity(0.2))
+                        )
+                }
                 
                 Text(subtitle)
-                    .font(.system(size: 14, weight: .regular, design: .default))
+                    .font(.system(size: 15, weight: .regular))
                     .foregroundColor(.white.opacity(0.5))
             }
-
+            
             Spacer()
-
-            // Arrow indicator
+            
+            // Chevron
             Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.white.opacity(0.3))
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+        .padding(20)
         .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white.opacity(0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                )
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color(red: 0.12, green: 0.12, blue: 0.16))
         )
-        .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Quick Action Button
+struct QuickActionButton: View {
+    let icon: String
+    let title: String
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color(red: 0.15, green: 0.15, blue: 0.2))
+                        .frame(width: 56, height: 56)
+                    
+                    Image(systemName: icon)
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundColor(.white.opacity(0.8))
+                }
+                
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color(red: 0.1, green: 0.1, blue: 0.14))
+            )
+        }
     }
 }
 
