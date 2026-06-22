@@ -7,16 +7,25 @@
         <attribute name="title" attributeType="String"/>
     </entity>
     <entity name="TaskEntity" representedClassName="On_phoneapp.TaskEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="calendarEventID" optional="YES" attributeType="String"/>
         <attribute name="category" optional="YES" attributeType="String"/>
         <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="dueDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="endDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="hasReminder" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
         <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="isAllDay" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
         <attribute name="isCompleted" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
         <attribute name="notes" optional="YES" attributeType="String"/>
+        <attribute name="notificationIdsData" optional="YES" attributeType="Binary"/>
         <attribute name="priority" attributeType="Integer 16" defaultValueString="1" usesScalarValueType="YES"/>
+        <attribute name="recurrenceRule" optional="YES" attributeType="String"/>
+        <attribute name="reminderOffsetsData" optional="YES" attributeType="Binary"/>
         <attribute name="reminderTime" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="startDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="textMe" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
         <attribute name="title" attributeType="String"/>
+        <attribute name="updatedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
     </entity>
     <entity name="VaultItemEntity" representedClassName="On_phoneapp.VaultItemEntity" syncable="YES" codeGenerationType="class">
         <attribute name="category" attributeType="String"/>

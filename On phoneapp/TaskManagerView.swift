@@ -23,7 +23,25 @@ struct Task: Identifiable, Codable {
     var hasReminder: Bool
     var reminderTime: Date?
 
-    init(id: UUID = UUID(), title: String, isCompleted: Bool = false, createdAt: Date = Date(), dueDate: Date? = nil, category: String? = nil, priority: Int = 1, notes: String? = nil, hasReminder: Bool = false, reminderTime: Date? = nil) {
+    // MARK: Scheduling fields (Phase 2)
+    // All default so existing call sites and legacy data keep working.
+    var startDate: Date? = nil          // non-nil => this item is "scheduled" (shows on the calendar)
+    var endDate: Date? = nil
+    var isAllDay: Bool = false
+    var recurrenceRule: String? = nil   // iCal RRULE: "FREQ=DAILY" / "FREQ=WEEKLY" / "FREQ=MONTHLY"
+    var reminderOffsets: [Int] = []     // minutes-before lead times, e.g. [0, 15, 60]
+    var calendarEventID: String? = nil  // EKEvent identifier once mirrored to Apple Calendar
+    var notificationIdentifiers: [String] = []
+    var textMe: Bool = false            // per-item "send me an SMS" flag
+    var updatedAt: Date? = nil
+
+    // Legacy Codable storage (UserDefaults "saved_tasks") only ever held the original
+    // fields. Scope Codable to them so old data still decodes; new fields use defaults.
+    enum CodingKeys: String, CodingKey {
+        case id, title, isCompleted, createdAt, dueDate, category, priority, notes, hasReminder, reminderTime
+    }
+
+    init(id: UUID = UUID(), title: String, isCompleted: Bool = false, createdAt: Date = Date(), dueDate: Date? = nil, category: String? = nil, priority: Int = 1, notes: String? = nil, hasReminder: Bool = false, reminderTime: Date? = nil, startDate: Date? = nil, endDate: Date? = nil, isAllDay: Bool = false, recurrenceRule: String? = nil, reminderOffsets: [Int] = [], calendarEventID: String? = nil, notificationIdentifiers: [String] = [], textMe: Bool = false, updatedAt: Date? = nil) {
         self.id = id
         self.title = title
         self.isCompleted = isCompleted
@@ -34,6 +52,15 @@ struct Task: Identifiable, Codable {
         self.notes = notes
         self.hasReminder = hasReminder
         self.reminderTime = reminderTime
+        self.startDate = startDate
+        self.endDate = endDate
+        self.isAllDay = isAllDay
+        self.recurrenceRule = recurrenceRule
+        self.reminderOffsets = reminderOffsets
+        self.calendarEventID = calendarEventID
+        self.notificationIdentifiers = notificationIdentifiers
+        self.textMe = textMe
+        self.updatedAt = updatedAt
     }
 
     var isOverdue: Bool {
@@ -61,6 +88,11 @@ struct Task: Identifiable, Codable {
         default: return "Low"
         }
     }
+
+    // MARK: Scheduling helpers
+    var isScheduled: Bool { startDate != nil }
+    var isRecurring: Bool { recurrenceRule != nil }
+    var effectiveSortDate: Date? { startDate ?? dueDate }
 }
 
 // MARK: - Task Storage Manager (Core Data)

@@ -104,6 +104,23 @@ extension NoteEntity {
 
 // MARK: - TaskEntity Extension
 extension TaskEntity {
+    // JSON-bridged computed properties for the new Binary attributes
+    public var reminderOffsets: [Int] {
+        get {
+            guard let data = reminderOffsetsData else { return [] }
+            return (try? JSONDecoder().decode([Int].self, from: data)) ?? []
+        }
+        set { reminderOffsetsData = try? JSONEncoder().encode(newValue) }
+    }
+
+    public var notificationIdentifiers: [String] {
+        get {
+            guard let data = notificationIdsData else { return [] }
+            return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+        }
+        set { notificationIdsData = try? JSONEncoder().encode(newValue) }
+    }
+
     // Convert to struct for UI
     func toTask() -> Task {
         return Task(
@@ -116,27 +133,30 @@ extension TaskEntity {
             priority: Int(self.priority),
             notes: self.notes,
             hasReminder: self.hasReminder,
-            reminderTime: self.reminderTime
+            reminderTime: self.reminderTime,
+            startDate: self.startDate,
+            endDate: self.endDate,
+            isAllDay: self.isAllDay,
+            recurrenceRule: self.recurrenceRule,
+            reminderOffsets: self.reminderOffsets,
+            calendarEventID: self.calendarEventID,
+            notificationIdentifiers: self.notificationIdentifiers,
+            textMe: self.textMe,
+            updatedAt: self.updatedAt
         )
     }
-    
-    // Create from struct
+
+    // Create from struct — sets identity + creation date, then delegates the rest
+    // to update(from:) so the two paths can never drift out of sync.
     static func from(task: Task, context: NSManagedObjectContext) -> TaskEntity {
         let entity = TaskEntity(context: context)
         entity.id = task.id
-        entity.title = task.title
-        entity.isCompleted = task.isCompleted
         entity.createdAt = task.createdAt
-        entity.dueDate = task.dueDate
-        entity.category = task.category
-        entity.priority = Int16(task.priority)
-        entity.notes = task.notes
-        entity.hasReminder = task.hasReminder
-        entity.reminderTime = task.reminderTime
+        entity.update(from: task)
         return entity
     }
-    
-    // Update from struct
+
+    // Update from struct (everything except identity + creation date)
     func update(from task: Task) {
         self.title = task.title
         self.isCompleted = task.isCompleted
@@ -146,6 +166,15 @@ extension TaskEntity {
         self.notes = task.notes
         self.hasReminder = task.hasReminder
         self.reminderTime = task.reminderTime
+        self.startDate = task.startDate
+        self.endDate = task.endDate
+        self.isAllDay = task.isAllDay
+        self.recurrenceRule = task.recurrenceRule
+        self.reminderOffsets = task.reminderOffsets
+        self.calendarEventID = task.calendarEventID
+        self.notificationIdentifiers = task.notificationIdentifiers
+        self.textMe = task.textMe
+        self.updatedAt = Date()
     }
 }
 
