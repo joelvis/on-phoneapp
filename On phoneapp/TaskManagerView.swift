@@ -292,40 +292,59 @@ struct TaskManagerView: View {
     @State private var tasks: [Task] = []
     @State private var newTaskTitle = ""
     @State private var showingAddTask = false
-    @State private var selectedSegment = 0 // 0 = Today, 1 = Upcoming
     @State private var taskToEdit: Task?
     @StateObject private var notificationManager = NotificationManager.shared
 
     private let storageManager = TaskStorageManager()
 
-    var filteredTasks: [Task] {
-        let filtered: [Task]
-        if selectedSegment == 0 {
-            // Today: tasks due today or overdue
-            filtered = tasks.filter { task in
-                task.isOverdue || task.isDueToday || task.dueDate == nil
-            }
-        } else {
-            // Upcoming: everything else
-            filtered = tasks.filter { task in
-                guard task.dueDate != nil else { return false }
-                return !task.isDueToday && !task.isOverdue
-            }
+    // MARK: - Agenda grouping
+    struct TaskSection: Identifiable {
+        let title: String
+        let items: [Task]
+        var id: String { title }
+        var isOverdue: Bool { title == "Overdue" }
+    }
+
+    private func sortByDate(_ a: Task, _ b: Task) -> Bool {
+        switch (a.dueDate, b.dueDate) {
+        case let (d1?, d2?): return d1 < d2
+        case (_?, nil): return true
+        case (nil, _?): return false
+        default: return a.createdAt > b.createdAt
         }
-        return filtered.sorted { task1, task2 in
-            // Sort by priority first (high to low)
-            if task1.priority != task2.priority {
-                return task1.priority > task2.priority
-            }
-            // Then by due date (earliest first)
-            if let date1 = task1.dueDate, let date2 = task2.dueDate {
-                return date1 < date2
-            }
-            if task1.dueDate != nil { return true }
-            if task2.dueDate != nil { return false }
-            // Finally by creation date (newest first)
-            return task1.createdAt > task2.createdAt
+    }
+
+    private func dayTitle(_ date: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(date) { return "Today" }
+        if cal.isDateInTomorrow(date) { return "Tomorrow" }
+        if cal.isDateInYesterday(date) { return "Yesterday" }
+        return date.formatted(.dateTime.weekday(.wide).month().day())
+    }
+
+    // Tasks grouped into an agenda: Overdue, then each upcoming day, then No Date.
+    var taskSections: [TaskSection] {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let dated = tasks.filter { $0.dueDate != nil }
+        let undated = tasks.filter { $0.dueDate == nil }
+
+        let overdue = dated.filter { !$0.isCompleted && $0.dueDate! < today }
+        let overdueIDs = Set(overdue.map(\.id))
+        let remaining = dated.filter { !overdueIDs.contains($0.id) }
+        let byDay = Dictionary(grouping: remaining) { cal.startOfDay(for: $0.dueDate!) }
+
+        var sections: [TaskSection] = []
+        if !overdue.isEmpty {
+            sections.append(TaskSection(title: "Overdue", items: overdue.sorted(by: sortByDate)))
         }
+        for day in byDay.keys.sorted() {
+            sections.append(TaskSection(title: dayTitle(day), items: (byDay[day] ?? []).sorted(by: sortByDate)))
+        }
+        if !undated.isEmpty {
+            sections.append(TaskSection(title: "No Date", items: undated.sorted { $0.createdAt > $1.createdAt }))
+        }
+        return sections
     }
 
     var body: some View {
@@ -336,27 +355,14 @@ struct TaskManagerView: View {
                     .ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    // Segmented control
-                    if !tasks.isEmpty {
-                        Picker("Filter", selection: $selectedSegment) {
-                            Text("Today").tag(0)
-                            Text("Upcoming").tag(1)
-                        }
-                        .pickerStyle(.segmented)
-                        .padding()
-                    }
-
-                    // Task list
                     if tasks.isEmpty {
                         emptyStateView
-                    } else if filteredTasks.isEmpty {
-                        emptyFilteredStateView
                     } else {
-                        taskListView
+                        scheduleListView
                     }
                 }
             }
-            .navigationTitle("Tasks")
+            .navigationTitle("Schedule")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -398,15 +404,15 @@ struct TaskManagerView: View {
     // MARK: - Empty State
     private var emptyStateView: some View {
         VStack(spacing: 20) {
-            Image(systemName: "checkmark.circle")
+            Image(systemName: "calendar.badge.clock")
                 .font(.system(size: 80))
                 .foregroundColor(.blue.opacity(0.5))
 
-            Text("No Tasks Yet")
+            Text("Nothing Scheduled")
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            Text("Tap the + button to add your first task")
+            Text("Tap + to add a task or schedule something")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -415,39 +421,39 @@ struct TaskManagerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var emptyFilteredStateView: some View {
-        VStack(spacing: 20) {
-            Image(systemName: selectedSegment == 0 ? "calendar.badge.clock" : "calendar")
-                .font(.system(size: 80))
-                .foregroundColor(.blue.opacity(0.5))
-
-            Text(selectedSegment == 0 ? "No Tasks for Today" : "No Upcoming Tasks")
-                .font(.title2)
-                .fontWeight(.semibold)
-
-            Text(selectedSegment == 0 ? "You're all caught up!" : "Add a due date to see tasks here")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    // MARK: - Task List
-    private var taskListView: some View {
+    // MARK: - Schedule List (agenda grouped by day)
+    private var scheduleListView: some View {
         ScrollView {
-            VStack(spacing: 12) {
-                ForEach(filteredTasks) { task in
-                    TaskRowView(
-                        task: task,
-                        onToggle: { toggleTaskCompletion(task) },
-                        onDelete: { deleteTask(task) },
-                        onEdit: { taskToEdit = task }
-                    )
+            LazyVStack(alignment: .leading, spacing: 10, pinnedViews: [.sectionHeaders]) {
+                ForEach(taskSections) { section in
+                    Section {
+                        ForEach(section.items) { task in
+                            TaskRowView(
+                                task: task,
+                                onToggle: { toggleTaskCompletion(task) },
+                                onDelete: { deleteTask(task) },
+                                onEdit: { taskToEdit = task }
+                            )
+                        }
+                    } header: {
+                        HStack {
+                            Text(section.title)
+                                .font(.headline)
+                                .foregroundColor(section.isOverdue ? .red : .primary)
+                            Spacer()
+                            Text("\(section.items.count)")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 6)
+                        .padding(.horizontal)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.bar)
+                    }
                 }
             }
-            .padding()
+            .padding(.horizontal)
+            .padding(.bottom, 20)
         }
     }
 
@@ -746,7 +752,7 @@ struct AddTaskView: View {
                             }
 
                             if hasDueDate {
-                                DatePicker("Due Date", selection: $dueDate, displayedComponents: [.date])
+                                DatePicker("Due Date", selection: $dueDate, displayedComponents: [.date, .hourAndMinute])
                                     .datePickerStyle(.graphical)
                             }
                         }

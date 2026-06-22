@@ -125,9 +125,9 @@ struct HomeView: View {
                     }
                     
                     FeatureCard(
-                        icon: "checkmark.square.fill",
-                        title: "Tasks",
-                        subtitle: "Stay organized",
+                        icon: "calendar",
+                        title: "Schedule",
+                        subtitle: "Plan your day",
                         count: dataCounter.tasksCount,
                         accentColor: Color(red: 1.0, green: 0.6, blue: 0.2),
                         iconBackground: Color(red: 0.3, green: 0.2, blue: 0.15)

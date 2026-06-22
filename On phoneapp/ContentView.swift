@@ -53,7 +53,7 @@ struct ContentView: View {
 
             TaskManagerView()
                 .tabItem {
-                    Label("Tasks", systemImage: "checklist")
+                    Label("Schedule", systemImage: "calendar")
                 }
                 .tag(2)
 
