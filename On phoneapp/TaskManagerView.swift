@@ -9,6 +9,7 @@ import SwiftUI
 import UserNotifications
 import Combine
 import CoreData
+import EventKit
 
 // MARK: - Task Model
 struct Task: Identifiable, Codable {
@@ -336,6 +337,84 @@ enum TaskActions {
     }
 }
 
+// MARK: - Calendar Sync (one-way: app -> a dedicated "Joel's App" calendar)
+// Mirrors scheduled items for visibility. Never reads or changes the user's own
+// calendars, and links each event by identifier so edits update in place (no dupes).
+final class CalendarSyncManager {
+    static let shared = CalendarSyncManager()
+    private let store = EKEventStore()
+    private let calendarTitle = "Joel's App"
+    private init() {}
+
+    // Ask for calendar permission — called lazily when the user enables the toggle.
+    func requestAccess() async -> Bool {
+        do {
+            if #available(iOS 17.0, *) {
+                return try await store.requestFullAccessToEvents()
+            } else {
+                return try await store.requestAccess(to: .event)
+            }
+        } catch {
+            print("❌ CalendarSync: access request failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    // Find or create our dedicated calendar so we never touch the user's own calendars.
+    private func appCalendar() -> EKCalendar? {
+        if let existing = store.calendars(for: .event).first(where: { $0.title == calendarTitle }) {
+            return existing
+        }
+        let calendar = EKCalendar(for: .event, eventStore: store)
+        calendar.title = calendarTitle
+        calendar.source = store.defaultCalendarForNewEvents?.source
+            ?? store.sources.first(where: { $0.sourceType == .local })
+            ?? store.sources.first
+        do {
+            try store.saveCalendar(calendar, commit: true)
+            return calendar
+        } catch {
+            print("❌ CalendarSync: failed to create calendar: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    // Mirror a scheduled task (visibility only, no separate alarm — the app handles
+    // reminders, so you don't get duplicate alerts). Returns the event identifier.
+    @discardableResult
+    func upsert(_ task: Task) -> String? {
+        guard let start = task.startDate ?? task.dueDate else { return nil }
+        guard let calendar = appCalendar() else { return nil }
+
+        let event: EKEvent
+        if let id = task.calendarEventID, let existing = store.event(withIdentifier: id) {
+            event = existing
+        } else {
+            event = EKEvent(eventStore: store)
+        }
+        event.calendar = calendar
+        event.title = task.title
+        event.notes = task.notes
+        event.isAllDay = task.isAllDay
+        event.startDate = start
+        event.endDate = task.endDate ?? start.addingTimeInterval(3600)
+
+        do {
+            try store.save(event, span: .thisEvent, commit: true)
+            return event.eventIdentifier
+        } catch {
+            print("❌ CalendarSync: failed to save event: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    // Remove the mirrored event when the task is deleted.
+    func delete(_ calendarEventID: String?) {
+        guard let id = calendarEventID, let event = store.event(withIdentifier: id) else { return }
+        try? store.remove(event, span: .thisEvent, commit: true)
+    }
+}
+
 // MARK: - Main Task Manager View
 struct TaskManagerView: View {
     @State private var tasks: [Task] = []
@@ -343,6 +422,7 @@ struct TaskManagerView: View {
     @State private var showingAddTask = false
     @State private var taskToEdit: Task?
     @StateObject private var notificationManager = NotificationManager.shared
+    @AppStorage("calendarSyncEnabled") private var calendarSyncEnabled = false
 
     private let storageManager = TaskStorageManager()
 
@@ -515,21 +595,30 @@ struct TaskManagerView: View {
         if task.hasReminder {
             scheduleNotificationIfAuthorized(for: task)
         }
+
+        syncToCalendar(task)
     }
 
     private func updateTask(_ updatedTask: Task) {
         if let index = tasks.firstIndex(where: { $0.id == updatedTask.id }) {
             let oldTask = tasks[index]
-            tasks[index] = updatedTask
-            storageManager.saveTask(updatedTask)
+            // Preserve links the edit form doesn't carry, so calendar/notifications
+            // update in place instead of duplicating.
+            var merged = updatedTask
+            if merged.calendarEventID == nil { merged.calendarEventID = oldTask.calendarEventID }
+            if merged.notificationIdentifiers.isEmpty { merged.notificationIdentifiers = oldTask.notificationIdentifiers }
+            tasks[index] = merged
+            storageManager.saveTask(merged)
 
             // Update notification
-            if updatedTask.hasReminder {
-                scheduleNotificationIfAuthorized(for: updatedTask)
-            } else if oldTask.hasReminder && !updatedTask.hasReminder {
+            if merged.hasReminder {
+                scheduleNotificationIfAuthorized(for: merged)
+            } else if oldTask.hasReminder && !merged.hasReminder {
                 // Cancel notification if reminder was turned off
-                notificationManager.cancelNotification(for: updatedTask)
+                notificationManager.cancelNotification(for: merged)
             }
+
+            syncToCalendar(merged)
         }
     }
 
@@ -549,9 +638,23 @@ struct TaskManagerView: View {
     private func deleteTask(_ task: Task) {
         // Cancel notification
         notificationManager.cancelNotification(for: task)
+        // Remove the mirrored calendar event, if any
+        CalendarSyncManager.shared.delete(task.calendarEventID)
 
         tasks.removeAll { $0.id == task.id }
         storageManager.deleteTask(task)
+    }
+
+    // Mirror a scheduled item into Apple Calendar (one-way), if the user enabled it.
+    private func syncToCalendar(_ task: Task) {
+        guard calendarSyncEnabled, task.startDate != nil || task.dueDate != nil else { return }
+        guard let eid = CalendarSyncManager.shared.upsert(task), eid != task.calendarEventID else { return }
+        if let index = tasks.firstIndex(where: { $0.id == task.id }) {
+            tasks[index].calendarEventID = eid
+        }
+        var stored = task
+        stored.calendarEventID = eid
+        storageManager.saveTask(stored)
     }
 
     private func scheduleNotificationIfAuthorized(for task: Task) {

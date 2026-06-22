@@ -265,6 +265,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need access to your camera to scan documents and take photos for secure storage in your vault.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "We use Face ID to securely unlock your vault and protect your sensitive documents.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access to your photo library to allow you to select images for secure storage in your vault.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "We add your scheduled items to a separate Joel's App calendar so you can see them next to your other events.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -313,6 +314,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need access to your camera to scan documents and take photos for secure storage in your vault.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "We use Face ID to securely unlock your vault and protect your sensitive documents.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access to your photo library to allow you to select images for secure storage in your vault.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "We add your scheduled items to a separate Joel's App calendar so you can see them next to your other events.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;

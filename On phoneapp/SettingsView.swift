@@ -17,6 +17,7 @@ struct SettingsView: View {
     @AppStorage("themePreference") private var themePreference = "system"
     @AppStorage("autoDeleteCompletedTasks") private var autoDeleteCompletedTasks = false
     @AppStorage("deleteAfterDays") private var deleteAfterDays = 7
+    @AppStorage("calendarSyncEnabled") private var calendarSyncEnabled = false
 
     @State private var notificationStatus = "Unknown"
     @State private var showingDeleteConfirmation = false
@@ -110,6 +111,24 @@ struct SettingsView: View {
                         Text("Task Settings")
                     } footer: {
                         Text("Customize default task behavior and display preferences.")
+                    }
+
+                    // MARK: - Calendar Section
+                    Section {
+                        Toggle(isOn: $calendarSyncEnabled) {
+                            Label("Sync to Apple Calendar", systemImage: "calendar")
+                        }
+                        .onChange(of: calendarSyncEnabled) { _, isOn in
+                            guard isOn else { return }
+                            _Concurrency.Task {
+                                let granted = await CalendarSyncManager.shared.requestAccess()
+                                if !granted { calendarSyncEnabled = false }
+                            }
+                        }
+                    } header: {
+                        Text("Calendar")
+                    } footer: {
+                        Text("Adds your scheduled items to a separate \"Joel's App\" calendar so they appear alongside your other events. One-way — your existing calendars are never read or changed.")
                     }
 
                     // MARK: - Appearance Section
