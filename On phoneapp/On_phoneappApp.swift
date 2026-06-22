@@ -38,6 +38,9 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         // Set the notification delegate
         UNUserNotificationCenter.current().delegate = self
 
+        // Register the interactive Complete / Snooze / Open actions before any fire.
+        NotificationManager.shared.registerCategories()
+
         // Request notification authorization on app launch
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if granted {
@@ -62,7 +65,17 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
 
     // This method is called when the user interacts with a notification
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
-        print("👆 User tapped notification: \(response.notification.request.content.body)")
+        let taskID = response.notification.request.content.userInfo["taskID"] as? String
+        switch response.actionIdentifier {
+        case "COMPLETE_ACTION":
+            if let taskID { TaskActions.markComplete(taskID: taskID) }
+        case "SNOOZE_ACTION":
+            if let taskID { TaskActions.snooze(taskID: taskID, minutes: 15) }
+        case "OPEN_ACTION", UNNotificationDefaultActionIdentifier:
+            DeepLink.shared.pendingTab = 2   // Schedule tab
+        default:
+            break
+        }
         completionHandler()
     }
 }

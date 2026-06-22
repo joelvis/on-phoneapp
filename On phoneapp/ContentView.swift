@@ -6,6 +6,14 @@
 //
 
 import SwiftUI
+import Combine
+
+// Lets a notification tap route the app to a specific tab.
+final class DeepLink: ObservableObject {
+    static let shared = DeepLink()
+    private init() {}
+    @Published var pendingTab: Int?
+}
 
 struct ContentView: View {
     init() {
@@ -36,7 +44,8 @@ struct ContentView: View {
     }
 
     @State private var selectedTab = 0
-    
+    @ObservedObject private var deepLink = DeepLink.shared
+
     var body: some View {
         TabView(selection: $selectedTab) {
             HomeView(selectedTab: $selectedTab)
@@ -68,6 +77,12 @@ struct ContentView: View {
                     Label("Settings", systemImage: "gear")
                 }
                 .tag(4)
+        }
+        .onChange(of: deepLink.pendingTab) { _, newValue in
+            if let tab = newValue {
+                selectedTab = tab
+                deepLink.pendingTab = nil
+            }
         }
     }
 }

@@ -181,6 +181,21 @@ class NotificationManager: ObservableObject {
         checkAuthorizationStatus()
     }
 
+    // Category whose action buttons (Complete / Snooze / Open) appear on reminders.
+    static let taskCategoryID = "TASK_REMINDER"
+
+    // Register the interactive actions. Call once at launch before any notification fires.
+    func registerCategories() {
+        let complete = UNNotificationAction(identifier: "COMPLETE_ACTION", title: "Complete",
+                                            options: [.authenticationRequired])
+        let snooze = UNNotificationAction(identifier: "SNOOZE_ACTION", title: "Snooze 15 min", options: [])
+        let open = UNNotificationAction(identifier: "OPEN_ACTION", title: "Open", options: [.foreground])
+        let category = UNNotificationCategory(identifier: Self.taskCategoryID,
+                                              actions: [complete, snooze, open],
+                                              intentIdentifiers: [], options: [])
+        UNUserNotificationCenter.current().setNotificationCategories([category])
+    }
+
     func requestAuthorization(completion: @escaping (Bool) -> Void) {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             DispatchQueue.main.async {
@@ -219,6 +234,9 @@ class NotificationManager: ObservableObject {
         content.body = task.title
         content.sound = .default
         content.badge = 1
+        // Attach the interactive actions + the task id so taps/buttons can act on it.
+        content.categoryIdentifier = NotificationManager.taskCategoryID
+        content.userInfo = ["taskID": task.id.uuidString]
 
         // Add category info if available
         if let category = task.category {
@@ -284,6 +302,37 @@ class NotificationManager: ObservableObject {
             }
             completion(requests)
         }
+    }
+}
+
+// MARK: - Notification Action Handling
+// Applies the Complete / Snooze buttons from a notification without the UI being open.
+// Works directly against Core Data so it's valid from the AppDelegate callback.
+enum TaskActions {
+    static func markComplete(taskID: String) {
+        let storage = TaskStorageManager()
+        guard let uuid = UUID(uuidString: taskID),
+              var task = storage.loadTasks().first(where: { $0.id == uuid }) else { return }
+        task.isCompleted = true
+        storage.saveTask(task)
+        NotificationManager.shared.cancelNotification(for: task)
+    }
+
+    static func snooze(taskID: String, minutes: Int) {
+        let storage = TaskStorageManager()
+        guard let uuid = UUID(uuidString: taskID),
+              var task = storage.loadTasks().first(where: { $0.id == uuid }) else { return }
+        let interval = TimeInterval(minutes * 60)
+        if let start = task.startDate { task.startDate = start.addingTimeInterval(interval) }
+        if let reminder = task.reminderTime {
+            task.reminderTime = reminder.addingTimeInterval(interval)
+        } else {
+            task.reminderTime = Date().addingTimeInterval(interval)
+        }
+        task.hasReminder = true
+        if let due = task.dueDate { task.dueDate = due.addingTimeInterval(interval) }
+        storage.saveTask(task)
+        NotificationManager.shared.scheduleNotification(for: task)
     }
 }
 
