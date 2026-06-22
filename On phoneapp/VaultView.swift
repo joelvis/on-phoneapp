@@ -2612,11 +2612,42 @@ struct FlowLayout: Layout {
 }
 
 // MARK: - Grid Card View
+// MARK: - Async Thumbnail Loader
+// Loads + decrypts a downsampled thumbnail lazily, off the synchronous view body,
+// and caches it in memory so cells don't re-decrypt the full image every time they
+// scroll back into view. This is what removes the Vault's scroll lag.
+final class ThumbnailLoader: ObservableObject {
+    @Published var image: UIImage?
+
+    // Shared across all cells, keyed by the item's stored filename.
+    private static let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 300
+        return cache
+    }()
+
+    func load(_ item: VaultItem, using storage: VaultStorageManager) async {
+        let key = item.imageName as NSString
+        if let cached = ThumbnailLoader.cache.object(forKey: key) {
+            image = cached
+            return
+        }
+        guard image == nil else { return }
+        // The .task modifier already defers this past the cell's first render, so the
+        // placeholder shows immediately and the decoded thumbnail fills in afterward.
+        guard let full = storage.loadThumbnail(for: item) else { return }
+        let thumb = VaultStorageManager.downsample(full, maxEdge: 400)
+        ThumbnailLoader.cache.setObject(thumb, forKey: key)
+        image = thumb
+    }
+}
+
 struct VaultItemGridCard: View {
     let item: VaultItem
     let storageManager: VaultStorageManager
     let onDelete: () -> Void
     let onUpdate: (VaultItem) -> Void
+    @StateObject private var thumbnail = ThumbnailLoader()
 
     var body: some View {
         NavigationLink(destination: VaultItemDetailView(item: item, storageManager: storageManager, onDelete: onDelete, onUpdate: onUpdate)) {
@@ -2627,7 +2658,7 @@ struct VaultItemGridCard: View {
                         .fill(Color(uiColor: .tertiarySystemBackground))
                         .aspectRatio(1, contentMode: .fit)
 
-                    if let image = storageManager.loadThumbnail(for: item) {
+                    if let image = thumbnail.image {
                         Image(uiImage: image)
                             .resizable()
                             .scaledToFill()
@@ -2656,6 +2687,7 @@ struct VaultItemGridCard: View {
                     }
                 }
                 .cornerRadius(12)
+                .task { await thumbnail.load(item, using: storageManager) }
 
                 // Title
                 Text(item.title)
@@ -2693,6 +2725,7 @@ struct VaultItemListRow: View {
     let storageManager: VaultStorageManager
     let onDelete: () -> Void
     let onUpdate: (VaultItem) -> Void
+    @StateObject private var thumbnail = ThumbnailLoader()
 
     var body: some View {
         NavigationLink(destination: VaultItemDetailView(item: item, storageManager: storageManager, onDelete: onDelete, onUpdate: onUpdate)) {
@@ -2703,7 +2736,7 @@ struct VaultItemListRow: View {
                         .fill(Color(uiColor: .tertiarySystemBackground))
                         .frame(width: 80, height: 80)
 
-                    if let image = storageManager.loadThumbnail(for: item) {
+                    if let image = thumbnail.image {
                         Image(uiImage: image)
                             .resizable()
                             .scaledToFill()
@@ -2734,6 +2767,7 @@ struct VaultItemListRow: View {
                     }
                 }
                 .cornerRadius(8)
+                .task { await thumbnail.load(item, using: storageManager) }
 
                 // Details
                 VStack(alignment: .leading, spacing: 6) {
