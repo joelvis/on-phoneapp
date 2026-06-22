@@ -1065,6 +1065,17 @@ struct AddVaultItemView: View {
         scannedImages.count > 1
     }
 
+    // Remove a single scanned page before saving, keeping the selected page valid.
+    private func deletePage(at index: Int) {
+        guard scannedImages.indices.contains(index) else { return }
+        scannedImages.remove(at: index)
+        if scannedImages.isEmpty {
+            currentImageIndex = 0
+        } else if currentImageIndex >= scannedImages.count {
+            currentImageIndex = scannedImages.count - 1
+        }
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -1125,25 +1136,39 @@ struct AddVaultItemView: View {
                                             }
                                             .disabled(currentImageIndex == 0)
 
-                                            // Thumbnail strip
+                                            // Thumbnail strip (tap to view, ✕ to delete a page)
                                             ScrollView(.horizontal, showsIndicators: false) {
                                                 HStack(spacing: 8) {
-                                                    ForEach(0..<scannedImages.count, id: \.self) { index in
-                                                        Button(action: {
-                                                            currentImageIndex = index
-                                                        }) {
-                                                            Image(uiImage: scannedImages[index])
-                                                                .resizable()
-                                                                .scaledToFill()
-                                                                .frame(width: 60, height: 60)
-                                                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                                                                .overlay(
-                                                                    RoundedRectangle(cornerRadius: 8)
-                                                                        .stroke(currentImageIndex == index ? Color.blue : Color.clear, lineWidth: 3)
-                                                                )
+                                                    ForEach(Array(scannedImages.enumerated()), id: \.offset) { index, pageImage in
+                                                        ZStack(alignment: .topTrailing) {
+                                                            Button(action: {
+                                                                currentImageIndex = index
+                                                            }) {
+                                                                Image(uiImage: pageImage)
+                                                                    .resizable()
+                                                                    .scaledToFill()
+                                                                    .frame(width: 60, height: 60)
+                                                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                                                    .overlay(
+                                                                        RoundedRectangle(cornerRadius: 8)
+                                                                            .stroke(currentImageIndex == index ? Color.blue : Color.clear, lineWidth: 3)
+                                                                    )
+                                                            }
+
+                                                            Button(action: {
+                                                                withAnimation { deletePage(at: index) }
+                                                            }) {
+                                                                Image(systemName: "xmark.circle.fill")
+                                                                    .font(.caption)
+                                                                    .foregroundColor(.white)
+                                                                    .background(Circle().fill(Color.black.opacity(0.6)))
+                                                            }
+                                                            .offset(x: 5, y: -5)
                                                         }
                                                     }
                                                 }
+                                                .padding(.top, 5)
+                                                .padding(.trailing, 5)
                                             }
 
                                             Button(action: {
