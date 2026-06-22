@@ -409,11 +409,15 @@ class DocumentScannerCoordinator: NSObject, VNDocumentCameraViewControllerDelega
     }
 
     func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFinishWith scan: VNDocumentCameraScan) {
-        // Process all scanned pages
+        // Process all scanned pages.
+        // Downsample each page as it leaves VisionKit so we never hold full-resolution
+        // camera images for the whole scan — this is what made large scans feel "capped".
         var scannedImages: [UIImage] = []
         for pageIndex in 0..<scan.pageCount {
-            let image = scan.imageOfPage(at: pageIndex)
-            scannedImages.append(image)
+            autoreleasepool {
+                let image = scan.imageOfPage(at: pageIndex)
+                scannedImages.append(VaultStorageManager.downsample(image, maxEdge: 2000))
+            }
         }
         parent.scannedImages = scannedImages
         parent.presentationMode.wrappedValue.dismiss()
@@ -738,7 +742,7 @@ class VaultStorageManager {
 
         do {
             let itemEntities = try context.fetch(fetchRequest)
-            let items = itemEntities.map { $0.toVaultItem() }
+            let items = itemEntities.compactMap { $0.toVaultItem() }
             print("✅ VaultStorageManager: Loaded \(items.count) vault items from Core Data")
             return items
         } catch {
@@ -830,21 +834,43 @@ class VaultStorageManager {
         return savePDF(pdfData, filename: filename)
     }
 
-    // Create PDF data from images
+    // Create PDF data from images.
+    // Wrapped in autoreleasepools and downsampled per page so building a PDF from a
+    // large multi-page scan stays memory-bounded instead of spiking / crashing.
     private func createPDFData(from images: [UIImage]) -> Data? {
         let pdfData = NSMutableData()
 
         UIGraphicsBeginPDFContextToData(pdfData, .zero, nil)
 
-        for image in images {
-            let pageRect = CGRect(x: 0, y: 0, width: image.size.width, height: image.size.height)
-            UIGraphicsBeginPDFPageWithInfo(pageRect, nil)
-            image.draw(in: pageRect)
+        autoreleasepool {
+            for image in images {
+                autoreleasepool {
+                    let scaled = VaultStorageManager.downsample(image, maxEdge: 2000)
+                    let pageRect = CGRect(origin: .zero, size: scaled.size)
+                    UIGraphicsBeginPDFPageWithInfo(pageRect, nil)
+                    scaled.draw(in: pageRect)
+                }
+            }
         }
 
         UIGraphicsEndPDFContext()
 
         return pdfData as Data
+    }
+
+    // Downsample a (potentially huge) scanned image so its longest edge is <= maxEdge.
+    // Visually lossless for documents at 2000px; keeps memory bounded on big scans.
+    // Static so the scanner coordinator can reuse it as pages come off the camera.
+    static func downsample(_ image: UIImage, maxEdge: CGFloat) -> UIImage {
+        let longest = max(image.size.width, image.size.height)
+        guard longest > maxEdge else { return image }
+        let scale = maxEdge / longest
+        let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: newSize, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: newSize))
+        }
     }
 
     // Generic save method for both images and PDFs
@@ -1356,6 +1382,7 @@ struct VaultView: View {
     @State private var showingAddFromScan = false
     @State private var isUnlocked = false
     @AppStorage("vault_security_enabled") private var securityEnabled = false
+    @Environment(\.scenePhase) private var scenePhase
 
     private let storageManager = VaultStorageManager()
 
@@ -1399,6 +1426,13 @@ struct VaultView: View {
                 })
             } else {
                 vaultContentView
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Re-lock the vault when the app leaves the foreground, so returning
+            // to it requires authentication again. Only when security is enabled.
+            if phase == .background && securityEnabled {
+                isUnlocked = false
             }
         }
     }

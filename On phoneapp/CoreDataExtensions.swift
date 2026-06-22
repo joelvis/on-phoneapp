@@ -21,23 +21,29 @@ extension VaultItemEntity {
         }
     }
     
-    // Convert to struct for UI
-    func toVaultItem() -> VaultItem {
-        // Parse documentType from string, default to .image if invalid or nil
-        let docType: DocumentType
-        if let typeString = self.documentType {
-            docType = DocumentType(rawValue: typeString) ?? .image
-        } else {
-            docType = .image
+    // Convert to struct for UI.
+    // Returns nil (instead of crashing) if a row is missing required fields —
+    // e.g. a partially-written or migrated row. Callers should use compactMap.
+    func toVaultItem() -> VaultItem? {
+        guard let id = self.id,
+              let title = self.title,
+              let category = self.category,
+              let imageName = self.imageName,
+              let createdAt = self.createdAt else {
+            print("⚠️ VaultItemEntity.toVaultItem(): skipping row with missing required fields")
+            return nil
         }
 
+        // Parse documentType from string, default to .image if invalid or nil
+        let docType = DocumentType(rawValue: self.documentType ?? "") ?? .image
+
         return VaultItem(
-            id: self.id!,
-            title: self.title!,
-            category: self.category!,
-            imageName: self.imageName!,
+            id: id,
+            title: title,
+            category: category,
+            imageName: imageName,
             thumbnailName: self.thumbnailName,
-            createdAt: self.createdAt!,
+            createdAt: createdAt,
             tags: self.tags,
             notes: self.notes,
             extractedText: self.extractedText,
